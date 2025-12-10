@@ -1,0 +1,157 @@
+.step-viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.step-viewer canvas {
+  display: block;
+}
+
+.viewer-loading,
+.viewer-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--bg-primary);
+  z-index: 10;
+}
+
+.viewer-loading p,
+.viewer-error p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.viewer-error p {
+  color: var(--accent-danger);
+}
+
+/* Controls */
+.viewer-controls {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 20;
+}
+
+.control-btn {
+  width: 40px;
+  height: 40px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.control-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.control-btn.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #000;
+}
+
+/* Measure info */
+.measure-info {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  z-index: 20;
+  min-width: 200px;
+}
+
+.measure-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--accent-primary);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.measure-info p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem 0;
+}
+
+.measurement-result {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.measurement-result span {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.measurement-result strong {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--accent-primary);
+}
+
+/* Help */
+.viewer-help {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  gap: 1rem;
+  z-index: 20;
+}
+
+.help-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(10, 11, 13, 0.8);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .viewer-help {
+    display: none;
+  }
+  
+  .measure-info {
+    left: 0.5rem;
+    right: 0.5rem;
+    max-width: none;
+  }
+}
+
