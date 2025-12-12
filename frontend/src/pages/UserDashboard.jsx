@@ -54,7 +54,7 @@ export default function UserDashboard() {
           <div className="sidebar-logo">
             <Box size={24} />
           </div>
-          <span>M-Chain</span>
+          <span>Künye</span>
         </div>
 
         <nav className="sidebar-nav">
@@ -190,4 +190,5 @@ export default function UserDashboard() {
     </div>
   )
 }
+
 

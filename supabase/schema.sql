@@ -351,3 +351,8 @@ LEFT JOIN public.profiles supplier ON p.assigned_to = supplier.id;
 -- SET role = 'user', company_name = 'ABC Makina Ltd.'
 -- WHERE username = 'tedarikci@example.com';
 
+
+
+
+
+

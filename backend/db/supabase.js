@@ -34,3 +34,8 @@ export const createUserClient = (accessToken) => {
 
 export default supabaseAdmin
 
+
+
+
+
+

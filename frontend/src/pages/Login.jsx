@@ -40,8 +40,7 @@ export default function Login() {
           <div className="logo">
             <Box size={40} strokeWidth={1.5} />
           </div>
-          <h1>M-Chain</h1>
-          <p>Teknik Veri Paylaşım Platformu</p>
+          <h1>Künye</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -89,12 +88,6 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="login-footer">
-          <div className="demo-credentials">
-            <p>Supabase ile giriş yapın</p>
-            <code>Supabase Dashboard'dan kullanıcı oluşturun</code>
-          </div>
-        </div>
       </div>
     </div>
   )

@@ -107,3 +107,8 @@ npm run dev
 - Bucket'ların oluşturulduğunu kontrol et
 - Storage policies'in SQL'de çalıştırıldığını kontrol et
 
+
+
+
+
+

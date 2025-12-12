@@ -292,3 +292,8 @@ export default function ProjectDetail() {
   )
 }
 
+
+
+
+
+
