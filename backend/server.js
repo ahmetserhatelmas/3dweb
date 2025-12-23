@@ -3,9 +3,11 @@ import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
+import cron from 'node-cron'
 import authRoutes from './routes/auth.js'
 import projectRoutes from './routes/projects.js'
 import uploadRoutes from './routes/upload.js'
+import { supabaseAdmin } from './db/supabase.js'
 
 // Load environment variables
 dotenv.config()
@@ -37,9 +39,29 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+// Supabase Keepalive - Her 3 günde bir çalışır (database'i aktif tutar)
+cron.schedule('0 3 */3 * *', async () => {
+  try {
+    console.log('🔄 Supabase keepalive başlatıldı...')
+    
+    // Basit bir query ile database'i uyandır
+    const { count, error } = await supabaseAdmin
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+    
+    if (error) throw error
+    
+    console.log('✅ Supabase aktif tutuldu! Profile sayısı:', count)
+    console.log('📅 Son çalışma:', new Date().toISOString())
+  } catch (error) {
+    console.error('❌ Supabase keepalive hatası:', error.message)
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`🚀 M-Chain Backend running on http://localhost:${PORT}`)
   if (!process.env.SUPABASE_URL) {
     console.log('⚠️  Warning: SUPABASE_URL not set. Please configure .env file.')
   }
+  console.log('⏰ Supabase keepalive aktif - Her 3 günde bir çalışacak')
 })
