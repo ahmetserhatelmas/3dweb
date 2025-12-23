@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import API_URL from '../lib/api'
 import { 
   ArrowLeft, Check, Upload, FileText, Download,
   Calendar, Building2, User as UserIcon, Clock, CheckCircle, Trash2
@@ -24,7 +25,7 @@ export default function ProjectDetail() {
 
   const fetchProject = async () => {
     try {
-      const res = await fetch(`/api/projects/${id}`, {
+      const res = await fetch(`${API_URL}/api/projects/${id}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -42,7 +43,7 @@ export default function ProjectDetail() {
 
   const handleChecklistChange = async (itemId, checked) => {
     try {
-      const res = await fetch(`/api/projects/${id}/checklist/${itemId}`, {
+      const res = await fetch(`${API_URL}/api/projects/${id}/checklist/${itemId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +72,7 @@ export default function ProjectDetail() {
 
     setCompleting(true)
     try {
-      const res = await fetch(`/api/projects/${id}/complete`, {
+      const res = await fetch(`${API_URL}/api/projects/${id}/complete`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -98,7 +99,7 @@ export default function ProjectDetail() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const res = await fetch(`/api/upload/document/${id}`, {
+      const res = await fetch(`${API_URL}/api/upload/document/${id}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -125,7 +126,7 @@ export default function ProjectDetail() {
 
     setDeletingDoc(docId)
     try {
-      const res = await fetch(`/api/projects/${id}/documents/${docId}`, {
+      const res = await fetch(`${API_URL}/api/projects/${id}/documents/${docId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
