@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Clock, CheckCircle, 
   Eye, FileBox, Users, Calendar, ChevronRight, UserPlus
@@ -19,7 +20,7 @@ export default function CustomerDashboard() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch('/api/projects', {
+      const res = await fetch(`${API_URL}/api/projects`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
