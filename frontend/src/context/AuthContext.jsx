@@ -18,7 +18,8 @@ export function AuthProvider({ children }) {
 
   const fetchUser = async () => {
     try {
-      const res = await fetch('/api/auth/me', {
+      const apiUrl = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${apiUrl}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -45,7 +46,8 @@ export function AuthProvider({ children }) {
 
   const tryRefreshToken = async () => {
     try {
-      const res = await fetch('/api/auth/refresh', {
+      const apiUrl = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${apiUrl}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken })
@@ -66,7 +68,8 @@ export function AuthProvider({ children }) {
 
   // Login with username (for Supabase)
   const login = async (username, password) => {
-    const res = await fetch('/api/auth/login', {
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    const res = await fetch(`${apiUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
