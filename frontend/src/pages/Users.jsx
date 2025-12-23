@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Users as UsersIcon, FileBox, 
   Trash2, Building2, Mail, Shield, User as UserIcon, Edit2
@@ -33,7 +34,7 @@ export default function Users() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/auth/users', {
+      const res = await fetch(`${API_URL}/api/auth/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -67,7 +68,7 @@ export default function Users() {
           updateData.password = form.password
         }
         
-        const res = await fetch(`/api/auth/users/${editingUser.id}`, {
+        const res = await fetch(`${API_URL}/api/auth/users/${editingUser.id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -85,7 +86,7 @@ export default function Users() {
         setSuccess('Kullanıcı başarıyla güncellendi!')
       } else {
         // Create user
-        const res = await fetch('/api/auth/register', {
+        const res = await fetch(`${API_URL}/api/auth/register`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -141,7 +142,7 @@ export default function Users() {
     }
 
     try {
-      const res = await fetch(`/api/auth/users/${userId}`, {
+      const res = await fetch(`${API_URL}/api/auth/users/${userId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
