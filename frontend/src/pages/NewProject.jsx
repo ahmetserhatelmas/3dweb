@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import API_URL from '../lib/api'
 import { 
   ArrowLeft, Save, Plus, Trash2, Upload, 
   FileBox, Box, LogOut, Users
@@ -32,7 +33,7 @@ export default function NewProject() {
 
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch('/api/auth/suppliers', {
+      const res = await fetch(`${API_URL}/api/auth/suppliers`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -85,7 +86,7 @@ export default function NewProject() {
 
       // Create project
       console.log('📤 Creating project...')
-      const res = await fetch('/api/projects', {
+      const res = await fetch(`${API_URL}/api/projects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -113,7 +114,7 @@ export default function NewProject() {
         const formData = new FormData()
         formData.append('file', stepFile)
 
-        const uploadRes = await fetch(`/api/upload/step/${projectId}`, {
+        const uploadRes = await fetch(`${API_URL}/api/upload/step/${projectId}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
