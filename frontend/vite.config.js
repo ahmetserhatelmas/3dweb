@@ -3,25 +3,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  root: 'frontend',
   publicDir: '../public',
   optimizeDeps: {
     include: ['occt-import-js']
   },
   assetsInclude: ['**/*.wasm'],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      },
-      '/uploads': {
-        target: 'http://localhost:3001',
-        changeOrigin: true
-      }
-    }
-  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
