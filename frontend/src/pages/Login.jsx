@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Lock, Mail, ArrowRight, Box } from 'lucide-react'
+import { Lock, User, ArrowRight } from 'lucide-react'
 import './Login.css'
 
 export default function Login() {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,8 +18,8 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const user = await login(email, password)
-      navigate(user.role === 'admin' ? '/admin' : '/dashboard')
+      const user = await login(username, password)
+      navigate(user.role === 'admin' ? '/admin' : user.role === 'customer' ? '/customer' : '/dashboard')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -37,10 +37,9 @@ export default function Login() {
       
       <div className="login-container">
         <div className="login-header">
-          <div className="logo">
-            <Box size={40} strokeWidth={1.5} />
-          </div>
-          <h1>Künye</h1>
+          <img src="/logo.png" alt="Kunye.tech" className="login-logo" />
+          <h1><span className="logo-kunye">Kunye</span><span className="logo-tech">.tech</span></h1>
+          <p className="login-slogan">Üretimin Dijital Pasaportu</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -51,16 +50,16 @@ export default function Login() {
           )}
 
           <div className="input-group">
-            <label htmlFor="email">E-posta</label>
+            <label htmlFor="username">Kullanıcı Adı</label>
             <div className="input-with-icon">
-              <Mail size={18} />
+              <User size={18} />
               <input
-                type="email"
-                id="email"
+                type="text"
+                id="username"
                 className="input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="E-posta adresinizi girin"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Kullanıcı adınızı girin"
                 required
               />
             </div>

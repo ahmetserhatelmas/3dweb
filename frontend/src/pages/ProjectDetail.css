@@ -175,6 +175,21 @@
   margin-right: 0.5rem;
 }
 
+.checked-indicator {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: rgba(0, 212, 170, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.checkbox-wrapper.is-checked {
+  background: rgba(0, 212, 170, 0.08);
+  border-color: rgba(0, 212, 170, 0.4);
+}
+
 /* Upload Section */
 .upload-section {
   margin: 1.5rem;
@@ -240,6 +255,12 @@
   gap: 0.5rem;
 }
 
+.document-item-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .document-item {
   display: flex;
   align-items: center;
@@ -251,6 +272,7 @@
   text-decoration: none;
   font-size: 0.85rem;
   transition: all 0.2s ease;
+  flex: 1;
 }
 
 .document-item:hover {
@@ -272,6 +294,31 @@
 
 .document-item:hover svg:last-child {
   opacity: 1;
+}
+
+.delete-doc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.delete-doc-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.delete-doc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Responsive */

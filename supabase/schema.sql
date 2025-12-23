@@ -11,8 +11,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE public.profiles (
     id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'customer', 'user')),
     company_name TEXT,
+    created_by UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -63,6 +64,18 @@ CREATE POLICY "Admins can view all projects"
         )
     );
 
+-- Customers can see projects they created
+CREATE POLICY "Customers can view their projects"
+    ON public.projects FOR SELECT
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
+        )
+        AND created_by = auth.uid()
+    );
+
 -- Users can see projects assigned to them
 CREATE POLICY "Users can view assigned projects"
     ON public.projects FOR SELECT
@@ -80,6 +93,17 @@ CREATE POLICY "Admins can create projects"
         )
     );
 
+-- Customers can create projects
+CREATE POLICY "Customers can create projects"
+    ON public.projects FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
+        )
+    );
+
 -- Admins can update any project
 CREATE POLICY "Admins can update projects"
     ON public.projects FOR UPDATE
@@ -89,6 +113,18 @@ CREATE POLICY "Admins can update projects"
             SELECT 1 FROM public.profiles
             WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
         )
+    );
+
+-- Customers can update their projects
+CREATE POLICY "Customers can update their projects"
+    ON public.projects FOR UPDATE
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
+        )
+        AND created_by = auth.uid()
     );
 
 -- Users can update their assigned projects (status only)
@@ -122,6 +158,7 @@ CREATE POLICY "Users can view checklist items for their projects"
             WHERE p.id = checklist_items.project_id
             AND (
                 p.assigned_to = auth.uid()
+                OR p.created_by = auth.uid()
                 OR EXISTS (
                     SELECT 1 FROM public.profiles
                     WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
@@ -140,6 +177,16 @@ CREATE POLICY "Admins can create checklist items"
         )
     );
 
+CREATE POLICY "Customers can create checklist items"
+    ON public.checklist_items FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
+        )
+    );
+
 CREATE POLICY "Users can update checklist items for their projects"
     ON public.checklist_items FOR UPDATE
     TO authenticated
@@ -149,6 +196,7 @@ CREATE POLICY "Users can update checklist items for their projects"
             WHERE p.id = checklist_items.project_id
             AND (
                 p.assigned_to = auth.uid()
+                OR p.created_by = auth.uid()
                 OR EXISTS (
                     SELECT 1 FROM public.profiles
                     WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
@@ -164,6 +212,16 @@ CREATE POLICY "Admins can delete checklist items"
         EXISTS (
             SELECT 1 FROM public.profiles
             WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        )
+    );
+
+CREATE POLICY "Customers can delete checklist items"
+    ON public.checklist_items FOR DELETE
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
         )
     );
 
@@ -195,6 +253,7 @@ CREATE POLICY "Users can view documents for their projects"
             WHERE p.id = documents.project_id
             AND (
                 p.assigned_to = auth.uid()
+                OR p.created_by = auth.uid()
                 OR EXISTS (
                     SELECT 1 FROM public.profiles
                     WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
@@ -212,6 +271,7 @@ CREATE POLICY "Users can upload documents to their projects"
             WHERE p.id = documents.project_id
             AND (
                 p.assigned_to = auth.uid()
+                OR p.created_by = auth.uid()
                 OR EXISTS (
                     SELECT 1 FROM public.profiles
                     WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
@@ -290,6 +350,17 @@ CREATE POLICY "Admins can upload STEP files"
         AND EXISTS (
             SELECT 1 FROM public.profiles
             WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        )
+    );
+
+CREATE POLICY "Customers can upload STEP files"
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        bucket_id = 'step-files'
+        AND EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'customer'
         )
     );
 

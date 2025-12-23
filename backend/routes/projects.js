@@ -1,10 +1,10 @@
 import express from 'express'
 import { supabaseAdmin } from '../db/supabase.js'
-import { authenticateToken, requireAdmin } from '../middleware/supabaseAuth.js'
+import { authenticateToken, requireAdmin, requireAdminOrCustomer } from '../middleware/supabaseAuth.js'
 
 const router = express.Router()
 
-// Get all projects (admin sees all, user sees only assigned)
+// Get all projects (admin sees all, customer sees their created projects, user sees only assigned)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = supabaseAdmin
@@ -16,10 +16,15 @@ router.get('/', authenticateToken, async (req, res) => {
       `)
       .order('created_at', { ascending: false })
 
-    // If not admin, filter by assigned_to
-    if (req.user.role !== 'admin') {
+    // Filter based on role
+    if (req.user.role === 'customer') {
+      // Customer sees only projects they created
+      query = query.eq('created_by', req.user.id)
+    } else if (req.user.role === 'user') {
+      // User sees only projects assigned to them
       query = query.eq('assigned_to', req.user.id)
     }
+    // Admin sees all projects
 
     const { data: projects, error } = await query
 
@@ -74,7 +79,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 
     // Check access
-    if (req.user.role !== 'admin' && project.assigned_to !== req.user.id) {
+    if (req.user.role === 'admin') {
+      // Admin can access all projects
+    } else if (req.user.role === 'customer' && project.created_by !== req.user.id) {
+      // Customer can only access projects they created
+      return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
+    } else if (req.user.role === 'user' && project.assigned_to !== req.user.id) {
+      // User can only access projects assigned to them
       return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
     }
 
@@ -115,8 +126,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 })
 
-// Create new project (admin only)
-router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+// Create new project (admin or customer)
+router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
     const { name, part_number, assigned_to, deadline, checklist } = req.body
 
@@ -160,8 +171,8 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   }
 })
 
-// Update project STEP file (admin only)
-router.patch('/:id/step-file', authenticateToken, requireAdmin, async (req, res) => {
+// Update project STEP file (admin or customer)
+router.patch('/:id/step-file', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
     const { step_file_path, step_file_name } = req.body
 
@@ -279,8 +290,8 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
   }
 })
 
-// Add checklist item (admin only)
-router.post('/:id/checklist', authenticateToken, requireAdmin, async (req, res) => {
+// Add checklist item (admin or customer)
+router.post('/:id/checklist', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
     const { title } = req.body
 
@@ -303,8 +314,8 @@ router.post('/:id/checklist', authenticateToken, requireAdmin, async (req, res) 
   }
 })
 
-// Delete checklist item (admin only)
-router.delete('/:projectId/checklist/:itemId', authenticateToken, requireAdmin, async (req, res) => {
+// Delete checklist item (admin or customer)
+router.delete('/:projectId/checklist/:itemId', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
     const { error } = await supabaseAdmin
       .from('checklist_items')
@@ -317,6 +328,51 @@ router.delete('/:projectId/checklist/:itemId', authenticateToken, requireAdmin, 
     res.json({ message: 'Checklist maddesi silindi.' })
   } catch (error) {
     console.error('Delete checklist item error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Delete document (user/supplier can delete their own, admin can delete any)
+router.delete('/:projectId/documents/:documentId', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, documentId } = req.params
+
+    // Get document info
+    const { data: document, error: fetchError } = await supabaseAdmin
+      .from('documents')
+      .select('*, project:projects(assigned_to, created_by)')
+      .eq('id', documentId)
+      .eq('project_id', projectId)
+      .single()
+
+    if (fetchError || !document) {
+      return res.status(404).json({ error: 'Döküman bulunamadı.' })
+    }
+
+    // Check permissions
+    if (req.user.role === 'admin' || 
+        (req.user.role === 'customer' && document.project.created_by === req.user.id) ||
+        (req.user.role === 'user' && document.uploaded_by === req.user.id)) {
+      // Delete from storage
+      const fileName = document.file_path.split('/').pop()
+      await supabaseAdmin.storage
+        .from('documents')
+        .remove([fileName])
+
+      // Delete from database
+      const { error: deleteError } = await supabaseAdmin
+        .from('documents')
+        .delete()
+        .eq('id', documentId)
+
+      if (deleteError) throw deleteError
+
+      res.json({ message: 'Döküman başarıyla silindi.' })
+    } else {
+      return res.status(403).json({ error: 'Bu dökümanı silme yetkiniz yok.' })
+    }
+  } catch (error) {
+    console.error('Delete document error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })

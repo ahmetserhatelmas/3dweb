@@ -11,14 +11,57 @@
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .user-card:hover {
   border-color: var(--border-light);
   transform: translateY(-2px);
+}
+
+.user-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.user-card-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  border-color: var(--border-light);
+  background: var(--bg-hover);
+}
+
+.edit-btn:hover {
+  color: var(--accent-secondary);
+  border-color: var(--accent-secondary);
+}
+
+.delete-btn:hover {
+  color: var(--accent-danger);
+  border-color: var(--accent-danger);
 }
 
 .user-card-avatar {
@@ -36,6 +79,11 @@
 .user-card-avatar[data-role="admin"] {
   background: linear-gradient(135deg, var(--accent-primary), #00b894);
   color: #000;
+}
+
+.user-card-avatar[data-role="customer"] {
+  background: linear-gradient(135deg, #a78bfa, #8b5cf6);
+  color: #fff;
 }
 
 .user-card-avatar[data-role="user"] {
@@ -60,11 +108,20 @@
 .user-email,
 .user-company {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.8rem;
   color: var(--text-muted);
   margin: 0.25rem 0 0 0;
+  min-width: 0;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.user-email svg,
+.user-company svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
 }
 
 .role-badge {
@@ -76,12 +133,20 @@
   font-size: 0.75rem;
   font-weight: 600;
   flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.25rem;
 }
 
 .role-badge.admin {
   background: rgba(0, 212, 170, 0.15);
   color: var(--accent-primary);
   border: 1px solid rgba(0, 212, 170, 0.3);
+}
+
+.role-badge.customer {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
 .role-badge.user {

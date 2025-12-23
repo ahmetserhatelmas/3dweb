@@ -51,10 +51,8 @@ export default function UserDashboard() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-logo">
-            <Box size={24} />
-          </div>
-          <span>Künye</span>
+          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <span>Kunye.tech</span>
         </div>
 
         <nav className="sidebar-nav">

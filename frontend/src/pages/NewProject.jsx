@@ -15,6 +15,9 @@ export default function NewProject() {
   const [stepFile, setStepFile] = useState(null)
   const [uploadingFile, setUploadingFile] = useState(false)
   
+  const isCustomer = user?.role === 'customer'
+  const basePath = isCustomer ? '/customer' : '/admin'
+  
   const [form, setForm] = useState({
     name: '',
     part_number: '',
@@ -74,10 +77,14 @@ export default function NewProject() {
     setLoading(true)
 
     try {
+      console.log('🚀 Starting project creation...')
+      console.log('📎 STEP file:', stepFile ? stepFile.name : 'NO FILE')
+      
       // Filter out empty checklist items
       const checklist = form.checklist.filter(item => item.trim() !== '')
 
       // Create project
+      console.log('📤 Creating project...')
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: {
@@ -97,24 +104,35 @@ export default function NewProject() {
       }
 
       const { id: projectId } = await res.json()
+      console.log('✅ Project created:', projectId)
 
       // Upload STEP file if selected
       if (stepFile) {
+        console.log('📤 Uploading STEP file...')
         setUploadingFile(true)
         const formData = new FormData()
         formData.append('file', stepFile)
 
-        await fetch(`/api/upload/step/${projectId}`, {
+        const uploadRes = await fetch(`/api/upload/step/${projectId}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
           },
           body: formData
         })
+        
+        if (!uploadRes.ok) {
+          console.error('❌ Upload failed:', await uploadRes.text())
+        } else {
+          console.log('✅ STEP file uploaded successfully')
+        }
+      } else {
+        console.log('⚠️ No STEP file to upload')
       }
 
-      navigate('/admin')
+      navigate(basePath)
     } catch (error) {
+      console.error('❌ Error:', error)
       alert(error.message)
     } finally {
       setLoading(false)
@@ -126,20 +144,18 @@ export default function NewProject() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-logo">
-            <Box size={24} />
-          </div>
-          <span>Künye</span>
+          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <span>Kunye.tech</span>
         </div>
 
         <nav className="sidebar-nav">
-          <Link to="/admin" className="nav-item">
+          <Link to={basePath} className="nav-item">
             <FileBox size={20} />
             <span>Projeler</span>
           </Link>
-          <Link to="/admin/users" className="nav-item">
+          <Link to={`${basePath}/users`} className="nav-item">
             <Users size={20} />
-            <span>Kullanıcılar</span>
+            <span>{isCustomer ? 'Tedarikçiler' : 'Kullanıcılar'}</span>
           </Link>
         </nav>
 
@@ -150,7 +166,7 @@ export default function NewProject() {
             </div>
             <div className="user-details">
               <span className="user-name">{user?.username}</span>
-              <span className="user-role">Admin</span>
+              <span className="user-role">{isCustomer ? 'Müşteri' : 'Admin'}</span>
             </div>
           </div>
           <button onClick={logout} className="logout-btn" title="Çıkış Yap">
@@ -162,12 +178,14 @@ export default function NewProject() {
       <main className="main-content">
         <div className="page-header">
           <div>
-            <Link to="/admin" className="back-link">
+            <Link to={basePath} className="back-link">
               <ArrowLeft size={20} />
               Geri Dön
             </Link>
             <h1 className="page-title">Yeni Proje Oluştur</h1>
-            <p className="page-subtitle">Tedarikçiye atanacak yeni bir iş tanımlayın</p>
+            <p className="page-subtitle">
+              {isCustomer ? 'Tedarikçinize atanacak yeni bir iş tanımlayın' : 'Tedarikçiye atanacak yeni bir iş tanımlayın'}
+            </p>
           </div>
         </div>
 
@@ -298,7 +316,7 @@ export default function NewProject() {
           </div>
 
           <div className="form-actions">
-            <Link to="/admin" className="btn btn-secondary">
+            <Link to={basePath} className="btn btn-secondary">
               İptal
             </Link>
             <button type="submit" className="btn btn-primary" disabled={loading}>

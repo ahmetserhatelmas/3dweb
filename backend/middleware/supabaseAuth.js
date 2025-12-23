@@ -49,6 +49,13 @@ export const requireAdmin = (req, res, next) => {
   next()
 }
 
+export const requireAdminOrCustomer = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'customer') {
+    return res.status(403).json({ error: 'Bu işlem için admin veya müşteri yetkisi gerekli.' })
+  }
+  next()
+}
+
 export const requireUser = (req, res, next) => {
   if (req.user.role !== 'user') {
     return res.status(403).json({ error: 'Bu işlem için tedarikçi yetkisi gerekli.' })

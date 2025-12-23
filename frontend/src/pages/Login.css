@@ -82,14 +82,31 @@
   box-shadow: var(--shadow-lg), 0 0 40px rgba(0, 212, 170, 0.3);
 }
 
+.login-logo {
+  width: 120px;
+  height: auto;
+  margin-bottom: 1rem;
+}
+
 .login-header h1 {
-  font-size: 2.5rem;
+  font-size: 2rem;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--text-primary), var(--accent-primary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.logo-kunye {
+  color: #1a2744;
+}
+
+.logo-tech {
+  color: #3db9e5;
+}
+
+.login-slogan {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  font-weight: 500;
 }
 
 .login-header p {

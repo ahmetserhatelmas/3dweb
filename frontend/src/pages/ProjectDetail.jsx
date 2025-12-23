@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { 
   ArrowLeft, Check, Upload, FileText, Download,
-  Calendar, Building2, User as UserIcon, Clock, CheckCircle
+  Calendar, Building2, User as UserIcon, Clock, CheckCircle, Trash2
 } from 'lucide-react'
 import StepViewer from '../components/StepViewer'
 import './ProjectDetail.css'
@@ -16,6 +16,7 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true)
   const [completing, setCompleting] = useState(false)
   const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [deletingDoc, setDeletingDoc] = useState(null)
 
   useEffect(() => {
     fetchProject()
@@ -54,7 +55,7 @@ export default function ProjectDetail() {
         setProject(prev => ({
           ...prev,
           checklist: prev.checklist.map(item => 
-            item.id === itemId ? { ...item, is_checked: checked ? 1 : 0 } : item
+            item.id === itemId ? { ...item, is_checked: checked } : item
           )
         }))
       }
@@ -117,8 +118,34 @@ export default function ProjectDetail() {
     }
   }
 
-  const allChecked = project?.checklist?.every(item => item.is_checked)
-  const checkedCount = project?.checklist?.filter(item => item.is_checked).length || 0
+  const handleDeleteDocument = async (docId, docName) => {
+    if (!confirm(`"${docName}" dökümanını silmek istediğinize emin misiniz?`)) {
+      return
+    }
+
+    setDeletingDoc(docId)
+    try {
+      const res = await fetch(`/api/projects/${id}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        fetchProject()
+      } else {
+        const data = await res.json()
+        alert(data.error)
+      }
+    } catch (error) {
+      console.error('Delete document error:', error)
+      alert('Döküman silinirken hata oluştu.')
+    } finally {
+      setDeletingDoc(null)
+    }
+  }
+
+  const allChecked = project?.checklist?.every(item => !!item.is_checked)
+  const checkedCount = project?.checklist?.filter(item => !!item.is_checked).length || 0
   const totalCount = project?.checklist?.length || 0
 
   const getStatusBadge = (status) => {
@@ -231,10 +258,10 @@ export default function ProjectDetail() {
 
           <div className="checklist-items">
             {project.checklist.map((item, index) => (
-              <label key={item.id} className="checkbox-wrapper">
+              <label key={item.id} className={`checkbox-wrapper ${item.is_checked ? 'is-checked' : ''}`}>
                 <input
                   type="checkbox"
-                  checked={item.is_checked === 1}
+                  checked={!!item.is_checked}
                   onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
                   disabled={project.status === 'completed' || user.role === 'admin'}
                 />
@@ -245,6 +272,9 @@ export default function ProjectDetail() {
                   <span className="item-number">{index + 1}.</span>
                   {item.title}
                 </span>
+                {item.is_checked && user.role === 'admin' && (
+                  <span className="checked-indicator">✓ Tamamlandı</span>
+                )}
               </label>
             ))}
           </div>
@@ -271,17 +301,28 @@ export default function ProjectDetail() {
               <h3>Yüklenen Dökümanlar</h3>
               <div className="documents-list">
                 {project.documents.map(doc => (
-                  <a 
-                    key={doc.id} 
-                    href={doc.file_path} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="document-item"
-                  >
-                    <FileText size={18} />
-                    <span>{doc.file_name}</span>
-                    <Download size={16} />
-                  </a>
+                  <div key={doc.id} className="document-item-wrapper">
+                    <a 
+                      href={doc.file_path} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="document-item"
+                    >
+                      <FileText size={18} />
+                      <span>{doc.file_name}</span>
+                      <Download size={16} />
+                    </a>
+                    {user.role === 'user' && project.status !== 'completed' && (
+                      <button
+                        className="delete-doc-btn"
+                        onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
+                        disabled={deletingDoc === doc.id}
+                        title="Dökümanı Sil"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

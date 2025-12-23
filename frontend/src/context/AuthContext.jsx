@@ -64,12 +64,12 @@ export function AuthProvider({ children }) {
     return false
   }
 
-  // Login with email (for Supabase)
-  const login = async (email, password) => {
+  // Login with username (for Supabase)
+  const login = async (username, password) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ username, password })
     })
     
     const data = await res.json()

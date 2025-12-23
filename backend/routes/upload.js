@@ -36,11 +36,11 @@ const documentFilter = (req, file, cb) => {
 const uploadStep = multer({ storage, fileFilter: stepFilter, limits: { fileSize: 100 * 1024 * 1024 } })
 const uploadDocument = multer({ storage, fileFilter: documentFilter, limits: { fileSize: 20 * 1024 * 1024 } })
 
-// Upload STEP file to Supabase Storage (admin)
+// Upload STEP file to Supabase Storage (admin & customer)
 router.post('/step/:projectId', authenticateToken, uploadStep.single('file'), async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Sadece admin STEP dosyası yükleyebilir.' })
+    if (req.user.role !== 'admin' && req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece admin ve müşteriler STEP dosyası yükleyebilir.' })
     }
 
     if (!req.file) {

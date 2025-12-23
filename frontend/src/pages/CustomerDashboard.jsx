@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import './Dashboard.css'
 
-export default function AdminDashboard() {
+export default function CustomerDashboard() {
   const { user, token, logout } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -63,13 +63,13 @@ export default function AdminDashboard() {
         </div>
 
         <nav className="sidebar-nav">
-          <Link to="/admin" className="nav-item active">
+          <Link to="/customer" className="nav-item active">
             <FileBox size={20} />
             <span>Projeler</span>
           </Link>
-          <Link to="/admin/users" className="nav-item">
+          <Link to="/customer/users" className="nav-item">
             <Users size={20} />
-            <span>Kullanıcılar</span>
+            <span>Tedarikçiler</span>
           </Link>
         </nav>
 
@@ -80,7 +80,7 @@ export default function AdminDashboard() {
             </div>
             <div className="user-details">
               <span className="user-name">{user?.username}</span>
-              <span className="user-role">Admin</span>
+              <span className="user-role">Müşteri</span>
             </div>
           </div>
           <button onClick={logout} className="logout-btn" title="Çıkış Yap">
@@ -93,9 +93,9 @@ export default function AdminDashboard() {
         <div className="page-header">
           <div>
             <h1 className="page-title">Projeler</h1>
-            <p className="page-subtitle">Tedarikçilere atanan işleri yönetin</p>
+            <p className="page-subtitle">Tedarikçilerinize atanan işleri yönetin</p>
           </div>
-          <Link to="/admin/new-project" className="btn btn-primary">
+          <Link to="/customer/new-project" className="btn btn-primary">
             <Plus size={20} />
             Yeni Proje
           </Link>
@@ -226,4 +226,5 @@ export default function AdminDashboard() {
     </div>
   )
 }
+
 
