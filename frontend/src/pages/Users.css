@@ -180,6 +180,67 @@
   font-size: 0.9rem;
 }
 
+/* Customer role styles */
+.user-card-avatar[data-role="customer"] {
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+  color: #fff;
+}
+
+.role-badge.customer {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+/* User Card Actions */
+.user-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.user-card-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.icon-btn.edit-btn {
+  background: rgba(14, 165, 233, 0.15);
+  color: var(--accent-secondary);
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.icon-btn.edit-btn:hover {
+  background: rgba(14, 165, 233, 0.25);
+  transform: translateY(-1px);
+}
+
+.icon-btn.delete-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.icon-btn.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  transform: translateY(-1px);
+}
+
 
 
 
