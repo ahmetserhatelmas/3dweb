@@ -193,12 +193,16 @@ export default function AdminDashboard() {
                 <p className="project-part">Parça No: {project.part_number}</p>
                 
                 <div className="project-meta">
-                  <div className="meta-item">
+                  <div className="meta-item" title="Müşteri">
+                    <UserPlus size={16} />
+                    <span>{project.creator_username || 'Admin'}</span>
+                  </div>
+                  <div className="meta-item" title="Tedarikçi">
                     <Users size={16} />
                     <span>{project.supplier_name || 'Atanmamış'}</span>
                   </div>
                   {project.deadline && (
-                    <div className="meta-item">
+                    <div className="meta-item" title="Son Tarih">
                       <Calendar size={16} />
                       <span>{new Date(project.deadline).toLocaleDateString('tr-TR')}</span>
                     </div>

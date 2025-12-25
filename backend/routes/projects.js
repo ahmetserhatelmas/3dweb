@@ -48,6 +48,7 @@ router.get('/', authenticateToken, async (req, res) => {
           ...project,
           supplier_name: project.supplier?.company_name,
           supplier_username: project.supplier?.username,
+          creator_username: project.creator?.username,
           total_items: totalItems || 0,
           checked_items: checkedItems || 0
         }

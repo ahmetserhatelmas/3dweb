@@ -19,10 +19,6 @@ export default function ProjectDetail() {
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [deletingDoc, setDeletingDoc] = useState(null)
 
-  useEffect(() => {
-    fetchProject()
-  }, [id])
-
   const fetchProject = async () => {
     try {
       const res = await fetch(`${API_URL}/api/projects/${id}`, {
@@ -32,7 +28,7 @@ export default function ProjectDetail() {
         const data = await res.json()
         setProject(data)
       } else {
-        navigate(user.role === 'admin' ? '/admin' : '/dashboard')
+        navigate(user.role === 'admin' ? '/admin' : (user.role === 'customer' ? '/customer' : '/dashboard'))
       }
     } catch (error) {
       console.error('Fetch project error:', error)
@@ -41,7 +37,45 @@ export default function ProjectDetail() {
     }
   }
 
+  useEffect(() => {
+    let isCancelled = false
+    
+    const loadProject = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/projects/${id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (res.ok && !isCancelled) {
+          const data = await res.json()
+          setProject(data)
+        } else if (!isCancelled) {
+          navigate(user.role === 'admin' ? '/admin' : (user.role === 'customer' ? '/customer' : '/dashboard'))
+        }
+      } catch (error) {
+        console.error('Fetch project error:', error)
+      } finally {
+        if (!isCancelled) {
+          setLoading(false)
+        }
+      }
+    }
+    
+    loadProject()
+    
+    return () => {
+      isCancelled = true
+    }
+  }, [id])
+
   const handleChecklistChange = async (itemId, checked) => {
+    // Optimistic update - UI'ı hemen güncelle
+    setProject(prev => ({
+      ...prev,
+      checklist: prev.checklist.map(item => 
+        item.id === itemId ? { ...item, is_checked: checked } : item
+      )
+    }))
+
     try {
       const res = await fetch(`${API_URL}/api/projects/${id}/checklist/${itemId}`, {
         method: 'PATCH',
@@ -52,16 +86,26 @@ export default function ProjectDetail() {
         body: JSON.stringify({ is_checked: checked })
       })
 
-      if (res.ok) {
+      // Hata olursa geri al
+      if (!res.ok) {
+        const errorData = await res.json()
+        console.error('Checklist update failed:', errorData)
         setProject(prev => ({
           ...prev,
           checklist: prev.checklist.map(item => 
-            item.id === itemId ? { ...item, is_checked: checked } : item
+            item.id === itemId ? { ...item, is_checked: !checked } : item
           )
         }))
       }
     } catch (error) {
       console.error('Update checklist error:', error)
+      // Hata olursa geri al
+      setProject(prev => ({
+        ...prev,
+        checklist: prev.checklist.map(item => 
+          item.id === itemId ? { ...item, is_checked: !checked } : item
+        )
+      }))
     }
   }
 
