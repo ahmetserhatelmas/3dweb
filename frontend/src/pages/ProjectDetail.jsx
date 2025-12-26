@@ -164,27 +164,44 @@ export default function ProjectDetail() {
   }
 
   const handleDeleteDocument = async (docId, docName) => {
-    if (!confirm(`"${docName}" dökümanını silmek istediğinize emin misiniz?`)) {
+    console.log('Delete clicked:', docId, docName)
+    
+    const confirmed = window.confirm(`"${docName}" dökümanını silmek istediğinize emin misiniz?`)
+    console.log('Confirm result:', confirmed)
+    
+    if (!confirmed) {
+      console.log('User cancelled')
       return
     }
 
+    console.log('Starting delete...')
     setDeletingDoc(docId)
+    
+    const url = `${API_URL}/api/projects/${id}/documents/${docId}`
+    console.log('DELETE URL:', url)
+    console.log('Token:', token ? 'exists' : 'missing')
+    
     try {
-      const res = await fetch(`${API_URL}/api/projects/${id}/documents/${docId}`, {
+      console.log('Sending fetch request...')
+      const res = await fetch(url, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
+      console.log('Response status:', res.status)
 
       if (res.ok) {
+        console.log('Delete successful, refreshing...')
         fetchProject()
       } else {
         const data = await res.json()
+        console.log('Delete failed:', data)
         alert(data.error)
       }
     } catch (error) {
       console.error('Delete document error:', error)
       alert('Döküman silinirken hata oluştu.')
     } finally {
+      console.log('Delete finished')
       setDeletingDoc(null)
     }
   }
@@ -308,7 +325,7 @@ export default function ProjectDetail() {
                   type="checkbox"
                   checked={!!item.is_checked}
                   onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
-                  disabled={project.status === 'completed' || user.role === 'admin'}
+                  disabled={project.status === 'completed' || user.role === 'admin' || user.role === 'customer'}
                 />
                 <span className="checkbox-custom">
                   <Check size={14} />

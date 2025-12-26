@@ -339,6 +339,7 @@ router.delete('/:projectId/checklist/:itemId', authenticateToken, requireAdminOr
 router.delete('/:projectId/documents/:documentId', authenticateToken, async (req, res) => {
   try {
     const { projectId, documentId } = req.params
+    console.log('Delete document request:', { projectId, documentId, userId: req.user.id, userRole: req.user.role })
 
     // Get document info
     const { data: document, error: fetchError } = await supabaseAdmin
@@ -348,30 +349,51 @@ router.delete('/:projectId/documents/:documentId', authenticateToken, async (req
       .eq('project_id', projectId)
       .single()
 
+    console.log('Document found:', document)
+    console.log('Fetch error:', fetchError)
+
     if (fetchError || !document) {
       return res.status(404).json({ error: 'Döküman bulunamadı.' })
     }
 
     // Check permissions
-    if (req.user.role === 'admin' || 
+    const canDelete = req.user.role === 'admin' || 
         (req.user.role === 'customer' && document.project.created_by === req.user.id) ||
-        (req.user.role === 'user' && document.uploaded_by === req.user.id)) {
+        (req.user.role === 'user' && document.uploaded_by === req.user.id)
+    
+    console.log('Permission check:', { 
+      canDelete, 
+      userRole: req.user.role,
+      documentUploadedBy: document.uploaded_by,
+      userId: req.user.id,
+      match: document.uploaded_by === req.user.id
+    })
+
+    if (canDelete) {
       // Delete from storage
       const fileName = document.file_path.split('/').pop()
-      await supabaseAdmin.storage
+      console.log('Deleting from storage:', fileName)
+      
+      const { error: storageError } = await supabaseAdmin.storage
         .from('documents')
         .remove([fileName])
+      
+      console.log('Storage delete error:', storageError)
 
       // Delete from database
+      console.log('Deleting from database...')
       const { error: deleteError } = await supabaseAdmin
         .from('documents')
         .delete()
         .eq('id', documentId)
 
+      console.log('Database delete error:', deleteError)
       if (deleteError) throw deleteError
 
+      console.log('Document deleted successfully')
       res.json({ message: 'Döküman başarıyla silindi.' })
     } else {
+      console.log('Permission denied')
       return res.status(403).json({ error: 'Bu dökümanı silme yetkiniz yok.' })
     }
   } catch (error) {

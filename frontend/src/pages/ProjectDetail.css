@@ -301,13 +301,15 @@
   align-items: center;
   justify-content: center;
   padding: 0.5rem;
-  background: transparent;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .delete-doc-btn:hover {
