@@ -99,12 +99,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
       project.status = 'reviewing'
     }
 
-    // Get checklist items
+    // Get checklist items - order_index'e göre sırala, yoksa id'ye göre
     const { data: checklist } = await supabaseAdmin
       .from('checklist_items')
       .select('*')
       .eq('project_id', req.params.id)
-      .order('created_at')
+      .order('order_index', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true })
 
     // Get documents
     const { data: documents } = await supabaseAdmin
@@ -151,13 +152,14 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
 
     if (error) throw error
 
-    // Add checklist items
+    // Add checklist items with order_index
     if (checklist && checklist.length > 0) {
       const checklistItems = checklist
         .filter(item => item.trim() !== '')
-        .map(title => ({
+        .map((title, index) => ({
           project_id: project.id,
-          title
+          title,
+          order_index: index + 1
         }))
 
       if (checklistItems.length > 0) {
