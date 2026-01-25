@@ -33,8 +33,20 @@ const documentFilter = (req, file, cb) => {
   }
 }
 
+// Project files filter - STEP, PDF, Excel, images
+const projectFileFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname).toLowerCase()
+  const allowed = ['.step', '.stp', '.pdf', '.xlsx', '.xls', '.jpg', '.jpeg', '.png', '.doc', '.docx']
+  if (allowed.includes(ext)) {
+    cb(null, true)
+  } else {
+    cb(new Error('Desteklenmeyen dosya formatı.'), false)
+  }
+}
+
 const uploadStep = multer({ storage, fileFilter: stepFilter, limits: { fileSize: 100 * 1024 * 1024 } })
 const uploadDocument = multer({ storage, fileFilter: documentFilter, limits: { fileSize: 20 * 1024 * 1024 } })
+const uploadProjectFiles = multer({ storage, fileFilter: projectFileFilter, limits: { fileSize: 100 * 1024 * 1024 } })
 
 // Upload STEP file to Supabase Storage (admin & customer)
 router.post('/step/:projectId', authenticateToken, uploadStep.single('file'), async (req, res) => {
@@ -147,6 +159,129 @@ router.post('/document/:projectId', authenticateToken, uploadDocument.single('fi
   } catch (error) {
     console.error('Upload document error:', error)
     res.status(500).json({ error: 'Dosya yükleme hatası.' })
+  }
+})
+
+// Upload multiple project files (for new project wizard)
+router.post('/project-files', authenticateToken, uploadProjectFiles.array('files', 20), async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece admin ve müşteriler dosya yükleyebilir.' })
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Dosya yüklenmedi.' })
+    }
+
+    const tempId = uuidv4() // Temporary folder until project is created
+    const uploadedFiles = []
+
+    for (const file of req.files) {
+      const ext = path.extname(file.originalname).toLowerCase()
+      const fileName = `temp/${tempId}/${uuidv4()}${ext}`
+      
+      // Determine file type
+      let fileType = 'other'
+      if (['.step', '.stp'].includes(ext)) fileType = 'step'
+      else if (ext === '.pdf') fileType = 'pdf'
+      else if (['.xlsx', '.xls'].includes(ext)) fileType = 'excel'
+      else if (['.jpg', '.jpeg', '.png'].includes(ext)) fileType = 'image'
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('project-files')
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        continue
+      }
+
+      // Get signed URL
+      const { data: signedUrlData } = await supabaseAdmin.storage
+        .from('project-files')
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
+
+      uploadedFiles.push({
+        temp_path: fileName,
+        file_url: signedUrlData?.signedUrl,
+        file_name: file.originalname,
+        file_type: fileType,
+        file_size: file.size,
+        mime_type: file.mimetype
+      })
+    }
+
+    res.json({
+      message: `${uploadedFiles.length} dosya yüklendi.`,
+      temp_folder: tempId,
+      files: uploadedFiles
+    })
+  } catch (error) {
+    console.error('Upload project files error:', error)
+    res.status(500).json({ error: 'Dosya yükleme hatası.' })
+  }
+})
+
+// General file upload for revisions (accepts any project file type)
+router.post('/', authenticateToken, uploadProjectFiles.single('file'), async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece admin ve müşteriler dosya yükleyebilir.' })
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Dosya yüklenmedi.' })
+    }
+
+    console.log('General upload:', { 
+      fileName: req.file.originalname, 
+      size: req.file.size,
+      userId: req.user.id 
+    })
+
+    const tempId = uuidv4()
+    const ext = path.extname(req.file.originalname).toLowerCase()
+    const fileName = `revisions/${tempId}/${uuidv4()}${ext}`
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from('project-files')
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false
+      })
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError)
+      throw uploadError
+    }
+
+    // Get signed URL
+    const { data: signedUrlData } = await supabaseAdmin.storage
+      .from('project-files')
+      .createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
+
+    const fileUrl = signedUrlData?.signedUrl
+
+    if (!fileUrl) {
+      throw new Error('Dosya URL\'si alınamadı')
+    }
+
+    console.log('Upload successful:', { fileName, fileUrl: fileUrl.substring(0, 50) + '...' })
+
+    res.json({
+      message: 'Dosya başarıyla yüklendi.',
+      url: fileUrl,
+      path: fileName,
+      file_name: req.file.originalname
+    })
+  } catch (error) {
+    console.error('General upload error:', error)
+    res.status(500).json({ error: error.message || 'Dosya yükleme hatası.' })
   }
 })
 

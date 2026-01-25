@@ -1,13 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
-  ArrowLeft, Check, Upload, FileText, Download,
-  Calendar, Building2, User as UserIcon, Clock, CheckCircle, Trash2
+  ArrowLeft, ArrowRight, Check, Upload, FileText, Download,
+  Calendar, Building2, User as UserIcon, Clock, CheckCircle, Trash2,
+  Box, FileSpreadsheet, Image, File, X, Eye, ChevronLeft, MessageSquare, Send,
+  DollarSign, CheckCheck, XCircle, CheckSquare, Plus, ChevronDown, ChevronRight
 } from 'lucide-react'
 import StepViewer from '../components/StepViewer'
+import { RevisionManager } from '../components/RevisionManager'
 import './ProjectDetail.css'
+
+// File type icons
+const getFileIcon = (type) => {
+  switch (type) {
+    case 'step': return <Box size={20} className="file-icon step" />
+    case 'pdf': return <FileText size={20} className="file-icon pdf" />
+    case 'excel': return <FileSpreadsheet size={20} className="file-icon excel" />
+    case 'image': return <Image size={20} className="file-icon image" />
+    default: return <File size={20} className="file-icon" />
+  }
+}
 
 export default function ProjectDetail() {
   const { id } = useParams()
@@ -18,6 +32,27 @@ export default function ProjectDetail() {
   const [completing, setCompleting] = useState(false)
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [deletingDoc, setDeletingDoc] = useState(null)
+  
+  // New: Active file view
+  const [activeFile, setActiveFile] = useState(null) // Currently selected file
+  const [viewMode, setViewMode] = useState('files') // 'files' | 'viewer'
+  
+  // Supplier notes
+  const [editingNoteId, setEditingNoteId] = useState(null)
+  const [noteText, setNoteText] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  
+  // Quotations (for customer)
+  const [quotations, setQuotations] = useState([])
+  const [loadingQuotations, setLoadingQuotations] = useState(false)
+  const [processingQuotation, setProcessingQuotation] = useState(null)
+  const [deletingProject, setDeletingProject] = useState(false)
+  
+  // Sub-checklist management
+  const [expandedItems, setExpandedItems] = useState({})
+  const [addingSubItem, setAddingSubItem] = useState(null) // parent item id
+  const [newSubItemTitle, setNewSubItemTitle] = useState('')
+  const [savingSubItem, setSavingSubItem] = useState(false)
 
   const fetchProject = async () => {
     try {
@@ -26,6 +61,12 @@ export default function ProjectDetail() {
       })
       if (res.ok) {
         const data = await res.json()
+        console.log('Project files loaded:', data.project_files?.map(f => ({ 
+          id: f.id, 
+          name: f.file_name, 
+          revision: f.revision, 
+          is_active: f.is_active 
+        })))
         setProject(data)
       } else {
         navigate(user.role === 'admin' ? '/admin' : (user.role === 'customer' ? '/customer' : '/dashboard'))
@@ -67,12 +108,256 @@ export default function ProjectDetail() {
     }
   }, [id])
 
-  const handleChecklistChange = async (itemId, checked) => {
-    // Optimistic update - UI'ı hemen güncelle
+  // Fetch quotations for customer
+  useEffect(() => {
+    if (user.role === 'customer' && project?.is_quotation) {
+      fetchQuotations()
+    }
+  }, [project?.is_quotation, user.role])
+
+  const fetchQuotations = async () => {
+    setLoadingQuotations(true)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/quotations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setQuotations(data)
+      }
+    } catch (error) {
+      console.error('Fetch quotations error:', error)
+    } finally {
+      setLoadingQuotations(false)
+    }
+  }
+
+  const handleAcceptQuotation = async (supplierId) => {
+    if (!confirm('Bu teklifi kabul etmek istediğinize emin misiniz? Diğer teklifler reddedilecektir.')) {
+      return
+    }
+
+    setProcessingQuotation(supplierId)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/accept`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        alert('Teklif kabul edildi! Proje tedarikçiye atandı.')
+        fetchProject()
+        fetchQuotations()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'İşlem başarısız.')
+      }
+    } catch (error) {
+      console.error('Accept quotation error:', error)
+      alert('Bir hata oluştu.')
+    } finally {
+      setProcessingQuotation(null)
+    }
+  }
+
+  const handleRejectQuotation = async (supplierId) => {
+    if (!confirm('Bu teklifi reddetmek istediğinize emin misiniz?')) {
+      return
+    }
+
+    setProcessingQuotation(supplierId)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        alert('Teklif reddedildi.')
+        fetchQuotations()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'İşlem başarısız.')
+      }
+    } catch (error) {
+      console.error('Reject quotation error:', error)
+      alert('Bir hata oluştu.')
+    } finally {
+      setProcessingQuotation(null)
+    }
+  }
+
+  // Delete entire project
+  const handleDeleteProject = async () => {
+    if (!confirm(`"${project.name}" projesini tamamen silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
+      return
+    }
+
+    setDeletingProject(true)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        alert('Proje başarıyla silindi.')
+        navigate(user.role === 'admin' ? '/admin' : '/customer')
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Proje silinemedi.')
+      }
+    } catch (error) {
+      console.error('Delete project error:', error)
+      alert('Bir hata oluştu.')
+    } finally {
+      setDeletingProject(false)
+    }
+  }
+
+  const handleChecklistChange = async (itemId, checked, isChild = false, parentId = null) => {
+    // Optimistic update - UI'ı hemen güncelle (synchronous, instant)
+    const updateChecklist = (items) => {
+      return items.map(item => {
+        // If this is the item being updated (direct update)
+        if (item.id === itemId) {
+          return { ...item, is_checked: checked }
+        }
+        
+        // Update children if this parent has children
+        if (item.children && item.children.length > 0) {
+          const updatedChildren = item.children.map(child => 
+            child.id === itemId ? { ...child, is_checked: checked } : child
+          )
+          
+          // Calculate parent state based on children
+          const allChildrenChecked = updatedChildren.length > 0 && updatedChildren.every(c => c.is_checked)
+          const hasAnyChildren = updatedChildren.length > 0
+          
+          // If all children are checked, parent must be checked
+          // If any child is unchecked, parent must be unchecked
+          return {
+            ...item,
+            children: updatedChildren,
+            is_checked: hasAnyChildren ? allChildrenChecked : item.is_checked
+          }
+        }
+        
+        return item
+      })
+    }
+
+    // Also update file_checklists if this is a file checklist item
+    const updateFileChecklists = (fileChecklists) => {
+      if (!fileChecklists) return fileChecklists
+      const updated = { ...fileChecklists }
+      for (const fileId in updated) {
+        updated[fileId] = updated[fileId].map(item => 
+          item.id === itemId ? { ...item, is_checked: checked } : item
+        )
+      }
+      return updated
+    }
+
+    // Immediately update UI - no waiting
+    setProject(prev => ({
+      ...prev,
+      checklist: updateChecklist(prev.checklist),
+      file_checklists: updateFileChecklists(prev.file_checklists)
+    }))
+
+    // API call in background - don't block UI
+    fetch(`${API_URL}/api/projects/${id}/checklist/${itemId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ is_checked: checked })
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          // Success - optimistic update is already applied and correct
+          // Don't update state from backend response to prevent flickering
+          // The optimistic update logic already handles parent state correctly
+          await res.json() // Consume response but don't use it
+        } else {
+          // On error, revert by fetching fresh data (silently in background)
+          const errorData = await res.json()
+          console.error('Checklist update failed:', errorData)
+          fetchProject()
+        }
+      })
+      .catch((error) => {
+        console.error('Update checklist error:', error)
+        // On error, revert by fetching fresh data (silently in background)
+        fetchProject()
+      })
+  }
+
+  // Toggle expanded state for hierarchical items
+  const toggleExpanded = (itemId) => {
+    setExpandedItems(prev => ({
+      ...prev,
+      [itemId]: !prev[itemId]
+    }))
+  }
+
+  // Add sub-checklist item
+  const handleAddSubItem = async (parentId, fileId = null) => {
+    if (!newSubItemTitle.trim()) {
+      setAddingSubItem(null)
+      setNewSubItemTitle('')
+      return
+    }
+
+    setSavingSubItem(true)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/checklist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          title: newSubItemTitle.trim(),
+          parent_id: parentId,
+          file_id: fileId
+        })
+      })
+
+      if (res.ok) {
+        setAddingSubItem(null)
+        setNewSubItemTitle('')
+        fetchProject() // Refresh to get updated checklist
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Alt madde eklenemedi.')
+      }
+    } catch (error) {
+      console.error('Add sub-item error:', error)
+      alert('Bir hata oluştu.')
+    } finally {
+      setSavingSubItem(false)
+    }
+  }
+
+  // Handle supplier note
+  const handleSaveNote = async (itemId) => {
+    if (!noteText.trim()) {
+      setEditingNoteId(null)
+      setNoteText('')
+      return
+    }
+
+    setSavingNote(true)
+    
+    // Optimistic update
+    const now = new Date().toISOString()
     setProject(prev => ({
       ...prev,
       checklist: prev.checklist.map(item => 
-        item.id === itemId ? { ...item, is_checked: checked } : item
+        item.id === itemId ? { ...item, supplier_notes: noteText, supplier_notes_at: now } : item
       )
     }))
 
@@ -83,30 +368,32 @@ export default function ProjectDetail() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ is_checked: checked })
+        body: JSON.stringify({ supplier_notes: noteText })
       })
 
-      // Hata olursa geri al
       if (!res.ok) {
-        const errorData = await res.json()
-        console.error('Checklist update failed:', errorData)
-        setProject(prev => ({
-          ...prev,
-          checklist: prev.checklist.map(item => 
-            item.id === itemId ? { ...item, is_checked: !checked } : item
-          )
-        }))
+        console.error('Note save failed')
+        // Revert on error
+        fetchProject()
       }
     } catch (error) {
-      console.error('Update checklist error:', error)
-      // Hata olursa geri al
-      setProject(prev => ({
-        ...prev,
-        checklist: prev.checklist.map(item => 
-          item.id === itemId ? { ...item, is_checked: !checked } : item
-        )
-      }))
+      console.error('Save note error:', error)
+      fetchProject()
+    } finally {
+      setSavingNote(false)
+      setEditingNoteId(null)
+      setNoteText('')
     }
+  }
+
+  const startEditingNote = (item) => {
+    setEditingNoteId(item.id)
+    setNoteText(item.supplier_notes || '')
+  }
+
+  const cancelEditingNote = () => {
+    setEditingNoteId(null)
+    setNoteText('')
   }
 
   const handleComplete = async () => {
@@ -206,9 +493,16 @@ export default function ProjectDetail() {
     }
   }
 
-  const allChecked = project?.checklist?.every(item => !!item.is_checked)
-  const checkedCount = project?.checklist?.filter(item => !!item.is_checked).length || 0
-  const totalCount = project?.checklist?.length || 0
+  // Count only parent items (no parent_id) for progress - children don't count separately
+  const parentItems = project?.checklist || []
+  const allChecked = parentItems.every(item => !!item.is_checked)
+  const checkedCount = parentItems.filter(item => !!item.is_checked).length || 0
+  const totalCount = parentItems.length || 0
+  
+  // Check if there are any inactive or pending files in the project
+  const hasInactiveFiles = project?.project_files?.some(file => file.is_active === false) || false
+  const hasPendingFiles = project?.project_files?.some(file => file.status === 'pending') || false
+  const hasProblematicFiles = hasInactiveFiles || hasPendingFiles
 
   const getStatusBadge = (status) => {
     const statusMap = {
@@ -219,6 +513,53 @@ export default function ProjectDetail() {
     return statusMap[status] || statusMap.pending
   }
 
+  // CRITICAL: ALL hooks must be called BEFORE any early returns (React Hooks rule)
+  // Optimize file grouping with useMemo - ALWAYS called (hooks rule)
+  const { activeFilesWithPreviews, inactiveFiles } = useMemo(() => {
+    // Safety check
+    if (!project || !project.project_files || !Array.isArray(project.project_files)) {
+      return { activeFilesWithPreviews: [], inactiveFiles: [] }
+    }
+    
+    // Quick filter: active files (including pending) vs inactive
+    const activeFiles = []
+    const pendingFiles = []
+    const inactiveFiles = []
+    
+    for (const file of project.project_files) {
+      if (!file || !file.id) continue
+      
+      if (file.status === 'pending') {
+        pendingFiles.push(file)
+      } else if (file.is_active === false) {
+        inactiveFiles.push(file)
+      } else {
+        activeFiles.push(file)
+      }
+    }
+    
+    // Quick map: parent_id -> pending files
+    const pendingMap = new Map()
+    for (const pending of pendingFiles) {
+      if (pending.parent_file_id) {
+        const parentId = String(pending.parent_file_id)
+        if (!pendingMap.has(parentId)) {
+          pendingMap.set(parentId, [])
+        }
+        pendingMap.get(parentId).push(pending)
+      }
+    }
+    
+    // Attach pending files to their parents
+    const activeFilesWithPreviews = activeFiles.map(file => ({
+      file,
+      pendingPreviews: pendingMap.get(String(file.id)) || []
+    }))
+    
+    return { activeFilesWithPreviews, inactiveFiles }
+  }, [project?.project_files])
+  
+  // Early returns AFTER all hooks (React Hooks rule)
   if (loading) {
     return (
       <div className="loading-screen">
@@ -233,12 +574,82 @@ export default function ProjectDetail() {
   }
 
   const StatusIcon = getStatusBadge(project.status).icon
+  
+  // Check if project has new multi-file structure
+  const hasProjectFiles = project?.project_files && project.project_files.length > 0
+  
+  // Get back link based on role
+  const getBackLink = () => {
+    if (user.role === 'admin') return '/admin'
+    if (user.role === 'customer') return '/customer'
+    return '/dashboard'
+  }
+
+  // Handle file click
+  const handleFileClick = (file) => {
+    setActiveFile(file)
+    setViewMode('viewer')
+  }
+
+  // Go back to files list
+  const handleBackToFiles = () => {
+    setActiveFile(null)
+    setViewMode('files')
+  }
+
+  // Render file preview based on type
+  const renderFilePreview = (file) => {
+    if (!file) return null
+
+    switch (file.file_type) {
+      case 'step':
+        return <StepViewer fileUrl={file.file_url} />
+      case 'pdf':
+        return (
+          <iframe 
+            src={file.file_url} 
+            className="pdf-preview"
+            title={file.file_name}
+          />
+        )
+      case 'excel':
+        return (
+          <div className="excel-preview">
+            <FileSpreadsheet size={64} />
+            <p>{file.file_name}</p>
+            <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              <Download size={18} />
+              Excel'i İndir
+            </a>
+          </div>
+        )
+      case 'image':
+        return (
+          <img 
+            src={file.file_url} 
+            alt={file.file_name}
+            className="image-preview"
+          />
+        )
+      default:
+        return (
+          <div className="file-preview-placeholder">
+            <File size={64} />
+            <p>{file.file_name}</p>
+            <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              <Download size={18} />
+              Dosyayı İndir
+            </a>
+          </div>
+        )
+    }
+  }
 
   return (
     <div className="project-detail-page">
       <header className="detail-header">
         <div className="header-left">
-          <Link to={user.role === 'admin' ? '/admin' : '/dashboard'} className="back-link">
+          <Link to={getBackLink()} className="back-link">
             <ArrowLeft size={20} />
             Geri
           </Link>
@@ -251,13 +662,17 @@ export default function ProjectDetail() {
               </span>
             </div>
             <div className="header-meta">
-              <span className="meta-item">
-                <FileText size={16} />
-                {project.part_number}
-              </span>
+              {project.part_number && (
+                <span className="meta-item">
+                  <FileText size={16} />
+                  {project.part_number}
+                </span>
+              )}
               <span className="meta-item">
                 <Building2 size={16} />
-                {project.supplier_name}
+                {project.supplier_name || (project.suppliers && project.suppliers.length > 0 
+                  ? project.suppliers.map(s => s.company_name).join(', ')
+                  : 'Atanmamış')}
               </span>
               {project.deadline && (
                 <span className="meta-item">
@@ -265,129 +680,733 @@ export default function ProjectDetail() {
                   {new Date(project.deadline).toLocaleDateString('tr-TR')}
                 </span>
               )}
+              {/* Show accepted quotation price */}
+              {project.suppliers && project.suppliers.length > 0 && (
+                (() => {
+                  const acceptedSupplier = project.suppliers.find(s => s.status === 'accepted')
+                  if (acceptedSupplier && acceptedSupplier.quoted_price) {
+                    return (
+                      <span className="meta-item" style={{ color: '#10b981', fontWeight: '600' }}>
+                        Fiyat: {acceptedSupplier.quoted_price.toLocaleString('tr-TR')}₺
+                      </span>
+                    )
+                  }
+                  return null
+                })()
+              )}
             </div>
           </div>
         </div>
         
-        {user.role === 'user' && project.status !== 'completed' && (
-          <button 
-            className="btn btn-primary"
-            onClick={handleComplete}
-            disabled={!allChecked || completing}
-          >
-            {completing ? 'Tamamlanıyor...' : (
-              <>
-                <CheckCircle size={18} />
-                İşi Tamamla
-              </>
-            )}
-          </button>
-        )}
+        <div className="header-actions">
+          {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && (
+            <button 
+              className="btn btn-primary"
+              onClick={handleComplete}
+              disabled={completing || hasProblematicFiles}
+              title={hasProblematicFiles ? 'Pasif veya önizleme dosyaları var - önce revizyonları tamamlayın' : ''}
+            >
+              {completing ? 'Tamamlanıyor...' : (
+                <>
+                  <CheckCircle size={18} />
+                  İşi Tamamla
+                </>
+              )}
+            </button>
+          )}
+
+          {(user.role === 'customer' || user.role === 'admin') && (
+            <button 
+              className="btn btn-danger"
+              onClick={handleDeleteProject}
+              disabled={deletingProject}
+            >
+              {deletingProject ? 'Siliniyor...' : (
+                <>
+                  <Trash2 size={18} />
+                  Projeyi Sil
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </header>
 
+      {/* Project Progress Bar */}
+      <div className="project-progress-section">
+        <div className="progress-info">
+          <span>Proje İlerlemesi</span>
+          <span className="progress-percentage">{totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0}%</span>
+        </div>
+        <div className="project-progress-bar">
+          <div 
+            className="project-progress-fill" 
+            style={{ width: `${totalCount > 0 ? (checkedCount / totalCount) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
       <div className="detail-content">
+        {/* Left Panel: Files or Viewer */}
         <div className="viewer-panel">
-          <div className="panel-header">
-            <h2>3D Model</h2>
-            {project.step_file_name && (
-              <span className="file-name">{project.step_file_name}</span>
-            )}
-          </div>
-          <div className="viewer-container">
-            {project.step_file_path ? (
-              <StepViewer fileUrl={project.step_file_path} />
-            ) : (
-              <div className="no-model">
-                <FileText size={48} />
-                <p>3D model yüklenmemiş</p>
+          {viewMode === 'files' && hasProjectFiles ? (
+            // Files List View
+            <>
+              {/* Active Files + Preview Files */}
+              <div className="panel-header">
+                <h2>Proje Dosyaları</h2>
+                <span className="file-count">
+                  {activeFilesWithPreviews.length} dosya
+                </span>
               </div>
-            )}
-          </div>
+              <div className="files-grid">
+                {activeFilesWithPreviews.map(({ file, pendingPreviews }) => {
+                  const hasPreview = pendingPreviews.length > 0
+                  
+                  return (
+                    <div key={`file-group-${file.id}`} className={hasPreview ? 'file-group-with-preview' : ''}>
+                      <div 
+                        className="project-file-card"
+                        data-status={file.status}
+                        onClick={() => handleFileClick(file)}
+                      >
+                        <div className="file-card-icon">
+                          {getFileIcon(file.file_type)}
+                        </div>
+                        <div className="file-card-info">
+                          <span className="file-card-name">{file.file_name}</span>
+                          {file.description && (
+                            <span className="file-card-desc">{file.description}</span>
+                          )}
+                          <div className="file-card-meta">
+                            {file.file_type === 'step' && file.quantity > 1 && (
+                              <span className="file-card-qty">{file.quantity} adet</span>
+                            )}
+                            {file.revision && (
+                              <span className="file-card-revision">Rev. {file.revision}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="file-card-badge">
+                          {file.file_type.toUpperCase()}
+                        </div>
+                        <button className="file-card-view">
+                          <Eye size={16} />
+                        </button>
+                      </div>
+                      
+                      {/* Preview files connected to this file */}
+                      {hasPreview && (
+                        <>
+                          <div className="file-connection-line">
+                            <ArrowRight size={20} />
+                          </div>
+                          {pendingPreviews.map((pending) => (
+                            <div 
+                              key={pending.id} 
+                              className="project-file-card pending"
+                              data-status={pending.status}
+                              onClick={() => handleFileClick(pending)}
+                            >
+                              <div className="file-card-icon">
+                                {getFileIcon(pending.file_type)}
+                              </div>
+                              <div className="file-card-info">
+                                <span className="file-card-name">{pending.file_name}</span>
+                                {pending.description && (
+                                  <span className="file-card-desc">{pending.description}</span>
+                                )}
+                                <div className="file-card-meta">
+                                  {pending.file_type === 'step' && pending.quantity > 1 && (
+                                    <span className="file-card-qty">{pending.quantity} adet</span>
+                                  )}
+                                  {pending.revision && (
+                                    <span className="file-card-revision">Rev. {pending.revision}</span>
+                                  )}
+                                  <span className="file-card-pending">ÖNZLEME</span>
+                                </div>
+                              </div>
+                              <div className="file-card-badge">
+                                {pending.file_type.toUpperCase()}
+                              </div>
+                              <button className="file-card-view">
+                                <Eye size={16} />
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Inactive Files Section (only truly inactive files, not pending) */}
+              {inactiveFiles.length > 0 && (
+                <div className="inactive-files-section">
+                  <div className="panel-header inactive-header">
+                    <h2>Pasif Dosyalar</h2>
+                    <span className="file-count">
+                      {inactiveFiles.length} dosya
+                    </span>
+                  </div>
+                  <div className="files-grid">
+                    {inactiveFiles.map((file, index) => (
+                        <div 
+                          key={file.id || index} 
+                          className="project-file-card inactive"
+                          data-status={file.status}
+                          onClick={() => handleFileClick(file)}
+                        >
+                          <div className="file-card-icon">
+                            {getFileIcon(file.file_type)}
+                          </div>
+                          <div className="file-card-info">
+                            <span className="file-card-name">{file.file_name}</span>
+                            {file.description && (
+                              <span className="file-card-desc">{file.description}</span>
+                            )}
+                            <div className="file-card-meta">
+                              {file.file_type === 'step' && file.quantity > 1 && (
+                                <span className="file-card-qty">{file.quantity} adet</span>
+                              )}
+                              {file.revision && (
+                                <span className="file-card-revision">Rev. {file.revision}</span>
+                              )}
+                              <span className="file-card-inactive">PASİF</span>
+                            </div>
+                          </div>
+                          <div className="file-card-badge">
+                            {file.file_type.toUpperCase()}
+                          </div>
+                          <button className="file-card-view">
+                            <Eye size={16} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : viewMode === 'viewer' && activeFile ? (
+            // Single File Viewer
+            <>
+              {/* Revision Manager - dosya viewer'ın üstünde */}
+              {project.status !== 'completed' && (
+                <RevisionManager
+                  projectId={project.id}
+                  file={activeFile}
+                  userRole={user.role}
+                  project={project}
+                  onRevisionAccepted={() => {
+                    fetchProject()
+                    setActiveFile(null)
+                    setTimeout(() => fetchProject(), 500)
+                  }}
+                  onRevisionCreated={() => {
+                    fetchProject()
+                  }}
+                />
+              )}
+              
+              <div className="panel-header">
+                <button className="back-to-files" onClick={handleBackToFiles}>
+                  <ChevronLeft size={20} />
+                  Dosyalara Dön
+                </button>
+                <span className="file-name">
+                  {activeFile.file_name}
+                  {activeFile.status === 'pending' && (
+                    <span className="pending-badge">ÖNZLEME</span>
+                  )}
+                  {activeFile.is_active === false && activeFile.status !== 'pending' && (
+                    <span className="inactive-badge">PASİF</span>
+                  )}
+                </span>
+              </div>
+              <div className="viewer-container">
+                {renderFilePreview(activeFile)}
+              </div>
+              {activeFile.notes && (
+                <div className="file-notes">
+                  <strong>Not:</strong> {activeFile.notes}
+                </div>
+              )}
+            </>
+          ) : (
+            // Legacy: Single STEP file view
+            <>
+              <div className="panel-header">
+                <h2>3D Model</h2>
+                {project.step_file_name && (
+                  <span className="file-name">{project.step_file_name}</span>
+                )}
+              </div>
+              <div className="viewer-container">
+                {project.step_file_path ? (
+                  <StepViewer fileUrl={project.step_file_path} />
+                ) : (
+                  <div className="no-model">
+                    <FileText size={48} />
+                    <p>3D model yüklenmemiş</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="checklist-panel">
-          <div className="panel-header">
-            <h2>Kontrol Listesi</h2>
-            <span className="progress-text">{checkedCount} / {totalCount}</span>
-          </div>
-
-          <div className="progress-bar">
-            <div 
-              className="progress-bar-fill" 
-              style={{ width: `${totalCount > 0 ? (checkedCount / totalCount) * 100 : 0}%` }}
-            />
-          </div>
-
-          <div className="checklist-items">
-            {project.checklist.map((item, index) => (
-              <label key={item.id} className={`checkbox-wrapper ${item.is_checked ? 'is-checked' : ''}`}>
-                <input
-                  type="checkbox"
-                  checked={!!item.is_checked}
-                  onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
-                  disabled={project.status === 'completed' || user.role === 'admin' || user.role === 'customer'}
-                />
-                <span className="checkbox-custom">
-                  <Check size={14} />
+          {/* Müşteri için Teklifler Paneli */}
+          {user.role === 'customer' && project.is_quotation && (
+            <div className="quotations-panel">
+              <div className="panel-header">
+                <h2>
+                  <Send size={18} />
+                  Gelen Teklifler
+                </h2>
+                <span className="quotation-count">
+                  {quotations.filter(q => q.status === 'quoted').length} teklif
                 </span>
-                <span className="checkbox-label">
-                  <span className="item-number">{index + 1}.</span>
-                  {item.title}
-                </span>
-                {item.is_checked && user.role === 'admin' && (
-                  <span className="checked-indicator">✓ Tamamlandı</span>
-                )}
-              </label>
-            ))}
-          </div>
+              </div>
 
-          {user.role === 'user' && project.status !== 'completed' && (
-            <div className="upload-section">
-              <h3>Döküman Yükle</h3>
-              <p>Sertifika, rapor veya diğer dökümanları yükleyin</p>
-              <label className="upload-btn">
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  onChange={handleDocumentUpload}
-                  disabled={uploadingDoc}
-                />
-                <Upload size={18} />
-                {uploadingDoc ? 'Yükleniyor...' : 'Dosya Seç'}
-              </label>
+              {loadingQuotations ? (
+                <div className="loading-quotations">
+                  <div className="loading-spinner small"></div>
+                  <span>Teklifler yükleniyor...</span>
+                </div>
+              ) : quotations.length === 0 ? (
+                <div className="no-quotations">
+                  <Clock size={32} />
+                  <p>Henüz teklif gelmedi</p>
+                  <span>Tedarikçiler tekliflerini gönderdiğinde burada görünecek</span>
+                </div>
+              ) : (
+                <>
+                  {quotations.map(q => (
+                    <div key={q.id} className={`quotation-item ${q.status}`}>
+                      <div className="quotation-item-header">
+                        <div className="supplier-info">
+                          <Building2 size={16} />
+                          <span className="supplier-name">{q.supplier?.company_name || q.supplier?.username}</span>
+                        </div>
+                        <span className={`quotation-status-badge ${q.status}`}>
+                          {q.status === 'pending' && 'Bekleniyor'}
+                          {q.status === 'quoted' && 'Teklif Geldi'}
+                          {q.status === 'accepted' && 'Kabul Edildi'}
+                          {q.status === 'rejected' && 'Reddedildi'}
+                        </span>
+                      </div>
+
+                      {q.status === 'quoted' && (
+                        <>
+                          <div className="quotation-details">
+                            <div className="quotation-price">
+                              <DollarSign size={18} />
+                              <span className="price-value">₺{Number(q.quoted_price).toLocaleString('tr-TR')}</span>
+                            </div>
+                            {q.delivery_date && (
+                              <div className="quotation-delivery">
+                                <Calendar size={14} />
+                                <span>Termin: {new Date(q.delivery_date).toLocaleDateString('tr-TR')}</span>
+                              </div>
+                            )}
+                            {q.quoted_note && (
+                              <div className="quotation-note">
+                                <MessageSquare size={14} />
+                                <p>{q.quoted_note}</p>
+                              </div>
+                            )}
+                            <span className="quotation-date">
+                              Teklif tarihi: {new Date(q.quoted_at).toLocaleDateString('tr-TR')}
+                            </span>
+                          </div>
+
+                          <div className="quotation-actions">
+                            <button 
+                              className="btn btn-accept"
+                              onClick={() => handleAcceptQuotation(q.supplier?.id)}
+                              disabled={processingQuotation === q.supplier?.id}
+                            >
+                              <CheckCheck size={16} />
+                              {processingQuotation === q.supplier?.id ? 'İşleniyor...' : 'Kabul Et'}
+                            </button>
+                            <button 
+                              className="btn btn-reject"
+                              onClick={() => handleRejectQuotation(q.supplier?.id)}
+                              disabled={processingQuotation === q.supplier?.id}
+                            >
+                              <XCircle size={16} />
+                              Reddet
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {q.status === 'pending' && (
+                        <div className="waiting-quote">
+                          <Clock size={16} />
+                          <span>Teklif bekleniyor...</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Checklist Preview for Customer */}
+              <div className="checklist-preview">
+                <div className="preview-header">
+                  <h3>
+                    <CheckSquare size={16} />
+                    Proje Kontrol Listesi
+                  </h3>
+                  <span className="preview-count">{checkedCount} / {totalCount}</span>
+                </div>
+                <div className="preview-items">
+                  {project.checklist.map((item, index) => (
+                    <div key={item.id} className={`preview-item ${item.is_checked ? 'checked' : ''}`}>
+                      <span className="preview-number">{index + 1}.</span>
+                      <span className="preview-title">{item.title}</span>
+                      {item.is_checked && <Check size={14} className="preview-check" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
-          {project.documents && project.documents.length > 0 && (
-            <div className="documents-section">
-              <h3>Yüklenen Dökümanlar</h3>
-              <div className="documents-list">
-                {project.documents.map(doc => (
-                  <div key={doc.id} className="document-item-wrapper">
-                    <a 
-                      href={doc.file_path} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="document-item"
-                    >
-                      <FileText size={18} />
-                      <span>{doc.file_name}</span>
-                      <Download size={16} />
-                    </a>
-                    {user.role === 'user' && project.status !== 'completed' && (
-                      <button
-                        className="delete-doc-btn"
-                        onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
-                        disabled={deletingDoc === doc.id}
-                        title="Dökümanı Sil"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+          {/* STEP File Checklist - görüntülenen STEP dosyası için */}
+          {viewMode === 'viewer' && activeFile?.file_type === 'step' && project.file_checklists?.[activeFile.id] && (
+            <div className="file-checklist-section">
+              <div className="panel-header">
+                <h2>
+                  <Box size={18} />
+                  Dosya Kontrolü
+                  {activeFile.status === 'pending' && (
+                    <span className="pending-warning"> (ÖNZLEME - Sadece Görüntüleme)</span>
+                  )}
+                  {activeFile.is_active === false && activeFile.status !== 'pending' && (
+                    <span className="inactive-warning"> (PASİF - Sadece Görüntüleme)</span>
+                  )}
+                </h2>
+                <span className="progress-text">
+                  {project.file_checklists[activeFile.id].filter(i => i.is_checked).length} / {project.file_checklists[activeFile.id].length}
+                </span>
+              </div>
+              <div className="file-checklist-items">
+                {project.file_checklists[activeFile.id].map((item, index) => (
+                  <div key={item.id} className={`checklist-child-item ${item.is_checked ? 'is-checked' : ''}`}>
+                    <label className="checkbox-wrapper">
+                      <input
+                        type="checkbox"
+                        checked={!!item.is_checked}
+                        onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
+                        disabled={
+                          activeFile.status === 'pending' || 
+                          activeFile.is_active === false || 
+                          project.status === 'completed' || 
+                          user.role === 'admin' || 
+                          user.role === 'customer' || 
+                          !project.can_edit_checklist
+                        }
+                      />
+                      <span className="checkbox-custom">
+                        <Check size={12} />
+                      </span>
+                      <span className="checkbox-label">
+                        <span className="item-number">{index + 1}.</span>
+                        {item.title}
+                      </span>
+                    </label>
                   </div>
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Normal Checklist (Teklif kabul edildikten sonra veya admin/user için) */}
+          {!(user.role === 'customer' && project.is_quotation) && (
+            <>
+              <div className="panel-header">
+                <h2>Proje Kontrol Listesi</h2>
+                <span className="progress-text">{checkedCount} / {totalCount}</span>
+              </div>
+
+              <div className="progress-bar">
+                <div 
+                  className="progress-bar-fill" 
+                  style={{ width: `${totalCount > 0 ? (checkedCount / totalCount) * 100 : 0}%` }}
+                />
+              </div>
+
+              <div className="checklist-items">
+                {project.checklist.map((item, index) => (
+                  <div key={item.id} className={`checklist-item-card ${item.is_checked ? 'is-checked' : ''} ${item.children?.length > 0 ? 'has-children' : ''}`}>
+                    <div className="checklist-item-main">
+                      {/* Expand/Collapse toggle for items with children */}
+                      {item.children?.length > 0 && (
+                        <button 
+                          className="expand-toggle"
+                          onClick={() => toggleExpanded(item.id)}
+                        >
+                          {expandedItems[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                      )}
+                      
+                      <label className="checkbox-wrapper">
+                        <input
+                          type="checkbox"
+                          checked={!!item.is_checked}
+                          onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
+                          disabled={
+                            project.status === 'completed' || 
+                            user.role === 'admin' || 
+                            user.role === 'customer' || 
+                            !project.can_edit_checklist || 
+                            (item.children?.length > 0) ||
+                            (viewMode === 'viewer' && activeFile && (activeFile.is_active === false || activeFile.status === 'pending'))
+                          }
+                        />
+                        <span className="checkbox-custom">
+                          <Check size={14} />
+                        </span>
+                        <span className="checkbox-label">
+                          <span className="item-number">{index + 1}.</span>
+                          {item.title}
+                          {item.children?.length > 0 && (
+                            <span className="children-count">
+                              ({item.children.filter(c => c.is_checked).length}/{item.children.length})
+                            </span>
+                          )}
+                        </span>
+                        {item.is_checked && (user.role === 'admin' || user.role === 'customer') && (
+                          <span className="checked-indicator">✓ Tamamlandı</span>
+                        )}
+                      </label>
+
+                      {/* Add sub-item button (for admin/customer) */}
+                      {(user.role === 'admin' || user.role === 'customer') && project.status !== 'completed' && (
+                        <button 
+                          className="add-sub-btn"
+                          onClick={() => {
+                            setAddingSubItem(item.id)
+                            setNewSubItemTitle('')
+                            setExpandedItems(prev => ({ ...prev, [item.id]: true }))
+                          }}
+                          title="Alt madde ekle"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Children items */}
+                    {item.children?.length > 0 && expandedItems[item.id] && (
+                      <div className="checklist-children">
+                        {item.children.map((child, childIndex) => (
+                          <div key={child.id} className={`checklist-child-item ${child.is_checked ? 'is-checked' : ''}`}>
+                            <label className="checkbox-wrapper">
+                              <input
+                                type="checkbox"
+                                checked={!!child.is_checked}
+                                onChange={(e) => handleChecklistChange(child.id, e.target.checked, true, item.id)}
+                                disabled={
+                                  project.status === 'completed' || 
+                                  user.role === 'admin' || 
+                                  user.role === 'customer' || 
+                                  !project.can_edit_checklist ||
+                                  (viewMode === 'viewer' && activeFile && (activeFile.is_active === false || activeFile.status === 'pending'))
+                                }
+                              />
+                              <span className="checkbox-custom">
+                                <Check size={12} />
+                              </span>
+                              <span className="checkbox-label">
+                                {child.title}
+                              </span>
+                            </label>
+
+                            {/* Child supplier notes */}
+                            {child.supplier_notes && (
+                              <div className="supplier-note-display small">
+                                <MessageSquare size={12} />
+                                <span>{child.supplier_notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add sub-item form */}
+                    {addingSubItem === item.id && (
+                      <div className="add-sub-item-form">
+                        <input
+                          type="text"
+                          value={newSubItemTitle}
+                          onChange={(e) => setNewSubItemTitle(e.target.value)}
+                          placeholder="Alt madde başlığı..."
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddSubItem(item.id)
+                            if (e.key === 'Escape') {
+                              setAddingSubItem(null)
+                              setNewSubItemTitle('')
+                            }
+                          }}
+                        />
+                        <div className="sub-item-actions">
+                          <button 
+                            className="btn btn-sm btn-cancel"
+                            onClick={() => {
+                              setAddingSubItem(null)
+                              setNewSubItemTitle('')
+                            }}
+                          >
+                            İptal
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-save"
+                            onClick={() => handleAddSubItem(item.id)}
+                            disabled={savingSubItem || !newSubItemTitle.trim()}
+                          >
+                            {savingSubItem ? 'Ekleniyor...' : 'Ekle'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Tedarikçi notu gösterimi (herkes görebilir) - only for parent items */}
+                    {item.supplier_notes && editingNoteId !== item.id && (
+                      <div className="supplier-note-display">
+                        <div className="note-header">
+                          <MessageSquare size={14} />
+                          <span className="note-label">Tedarikçi Notu</span>
+                          {item.supplier_notes_at && (
+                            <span className="note-date">
+                              {new Date(item.supplier_notes_at).toLocaleDateString('tr-TR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="note-text">{item.supplier_notes}</p>
+                        {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && 
+                         !(viewMode === 'viewer' && activeFile && (activeFile.is_active === false || activeFile.status === 'pending')) && (
+                          <button 
+                            className="edit-note-btn"
+                            onClick={() => startEditingNote(item)}
+                          >
+                            Düzenle
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tedarikçi not ekleme/düzenleme */}
+                    {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && 
+                     !(viewMode === 'viewer' && activeFile && (activeFile.is_active === false || activeFile.status === 'pending')) && (
+                      <>
+                        {editingNoteId === item.id ? (
+                          <div className="supplier-note-input">
+                            <textarea
+                              value={noteText}
+                              onChange={(e) => setNoteText(e.target.value)}
+                              placeholder="Not ekleyin (örn: tolerans sorunu, malzeme problemi...)"
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="note-actions">
+                              <button 
+                                className="btn btn-sm btn-cancel"
+                                onClick={cancelEditingNote}
+                                disabled={savingNote}
+                              >
+                                İptal
+                              </button>
+                              <button 
+                                className="btn btn-sm btn-save"
+                                onClick={() => handleSaveNote(item.id)}
+                                disabled={savingNote}
+                              >
+                                {savingNote ? 'Kaydediliyor...' : (
+                                  <>
+                                    <Send size={14} />
+                                    Kaydet
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        ) : !item.supplier_notes && (
+                          <button 
+                            className="add-note-btn"
+                            onClick={() => startEditingNote(item)}
+                          >
+                            <MessageSquare size={14} />
+                            Not Ekle
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && (
+                <div className="upload-section">
+                  <h3>Döküman Yükle</h3>
+                  <p>Sertifika, rapor veya diğer dökümanları yükleyin</p>
+                  <label className="upload-btn">
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                      onChange={handleDocumentUpload}
+                      disabled={uploadingDoc}
+                    />
+                    <Upload size={18} />
+                    {uploadingDoc ? 'Yükleniyor...' : 'Dosya Seç'}
+                  </label>
+                </div>
+              )}
+
+              {project.documents && project.documents.length > 0 && (
+                <div className="documents-section">
+                  <h3>Yüklenen Dökümanlar</h3>
+                  <div className="documents-list">
+                    {project.documents.map(doc => (
+                      <div key={doc.id} className="document-item-wrapper">
+                        <a 
+                          href={doc.file_path} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="document-item"
+                        >
+                          <FileText size={18} />
+                          <span>{doc.file_name}</span>
+                          <Download size={16} />
+                        </a>
+                        {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && (
+                          <button
+                            className="delete-doc-btn"
+                            onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
+                            disabled={deletingDoc === doc.id}
+                            title="Dökümanı Sil"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

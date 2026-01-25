@@ -87,21 +87,21 @@ export default function Users() {
       } else {
         // Create user
         const res = await fetch(`${API_URL}/api/auth/register`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(form)
-        })
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      })
 
-        const data = await res.json()
+      const data = await res.json()
 
-        if (!res.ok) {
-          throw new Error(data.error || 'Kullanıcı oluşturulamadı')
-        }
+      if (!res.ok) {
+        throw new Error(data.error || 'Kullanıcı oluşturulamadı')
+      }
 
-        setSuccess('Kullanıcı başarıyla oluşturuldu!')
+      setSuccess('Kullanıcı başarıyla oluşturuldu!')
       }
       
       setForm({
@@ -244,15 +244,15 @@ export default function Users() {
                   )}
                 </div>
                 <div className="user-card-actions">
-                  <span className={`role-badge ${u.role}`}>
-                    {u.role === 'admin' ? (
-                      <><Shield size={12} /> Admin</>
+                <span className={`role-badge ${u.role}`}>
+                  {u.role === 'admin' ? (
+                    <><Shield size={12} /> Admin</>
                     ) : u.role === 'customer' ? (
                       <><Building2 size={12} /> Müşteri</>
-                    ) : (
-                      <><UserIcon size={12} /> Tedarikçi</>
-                    )}
-                  </span>
+                  ) : (
+                    <><UserIcon size={12} /> Tedarikçi</>
+                  )}
+                </span>
                   {u.id !== user.id && (
                     <div className="user-card-buttons">
                       <button 
@@ -304,24 +304,24 @@ export default function Users() {
                 </div>
 
                 {!editingUser ? (
-                  <div className="input-group">
-                    <label>Şifre *</label>
-                    <input
-                      type="password"
-                      className="input"
-                      value={form.password}
-                      onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))}
-                      placeholder="Minimum 6 karakter"
-                      minLength={6}
-                      required
-                    />
-                  </div>
+                <div className="input-group">
+                  <label>Şifre *</label>
+                  <input
+                    type="password"
+                    className="input"
+                    value={form.password}
+                    onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder="Minimum 6 karakter"
+                    minLength={6}
+                    required
+                  />
+                </div>
                 ) : (
-                  <div className="input-group">
+                <div className="input-group">
                     <label>Yeni Şifre (opsiyonel)</label>
-                    <input
+                  <input
                       type="password"
-                      className="input"
+                    className="input"
                       value={form.password}
                       onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))}
                       placeholder="Değiştirmek için yeni şifre girin"
@@ -330,7 +330,7 @@ export default function Users() {
                     <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                       Boş bırakırsanız şifre değişmez
                     </small>
-                  </div>
+                </div>
                 )}
 
                 <div className="input-group">

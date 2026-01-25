@@ -6,6 +6,7 @@ import {
   Plus, LogOut, Box, Clock, CheckCircle, 
   Eye, FileBox, Users, Calendar, ChevronRight, UserPlus
 } from 'lucide-react'
+import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
 
 export default function AdminDashboard() {
@@ -202,10 +203,29 @@ export default function AdminDashboard() {
                     <span>{project.supplier_name || 'Atanmamış'}</span>
                   </div>
                   {project.deadline && (
-                    <div className="meta-item" title="Son Tarih">
+                    <div className={`meta-item deadline ${formatDeadlineInfo(project.deadline)?.urgency || ''}`} title="Son Tarih">
                       <Calendar size={16} />
-                      <span>{new Date(project.deadline).toLocaleDateString('tr-TR')}</span>
+                      <span>
+                        Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                        <strong className="days-remaining"> ({formatDeadlineInfo(project.deadline)?.daysStr})</strong>
+                      </span>
                     </div>
+                  )}
+                  {/* Show accepted quotation price */}
+                  {project.project_suppliers && project.project_suppliers.length > 0 && (
+                    (() => {
+                      const acceptedSupplier = project.project_suppliers.find(ps => ps.status === 'accepted')
+                      if (acceptedSupplier && acceptedSupplier.quoted_price) {
+                        return (
+                          <div className="meta-item price">
+                            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: '#10b981' }}>
+                              Fiyat: {acceptedSupplier.quoted_price.toLocaleString('tr-TR')}₺
+                            </span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()
                   )}
                 </div>
 

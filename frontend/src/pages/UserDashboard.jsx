@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   LogOut, Box, Clock, CheckCircle, 
-  Eye, FileBox, Calendar, ChevronRight, Building2
+  Eye, FileBox, Calendar, ChevronRight, Building2, Send
 } from 'lucide-react'
+import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
 
 export default function UserDashboard() {
@@ -57,6 +58,10 @@ export default function UserDashboard() {
         </div>
 
         <nav className="sidebar-nav">
+          <Link to="/quotations" className="nav-item">
+            <Send size={20} />
+            <span>Teklifler</span>
+          </Link>
           <Link to="/dashboard" className="nav-item active">
             <FileBox size={20} />
             <span>İşlerim</span>
@@ -160,9 +165,20 @@ export default function UserDashboard() {
                 
                 <div className="project-meta">
                   {project.deadline && (
-                    <div className="meta-item deadline">
+                    <div className={`meta-item deadline ${formatDeadlineInfo(project.deadline)?.urgency || ''}`}>
                       <Calendar size={16} />
-                      <span>Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}</span>
+                      <span>
+                        Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                        <strong className="days-remaining"> ({formatDeadlineInfo(project.deadline)?.daysStr})</strong>
+                      </span>
+                    </div>
+                  )}
+                  {/* Show accepted quotation price */}
+                  {project.accepted_quoted_price && (
+                    <div className="meta-item price">
+                      <span style={{ fontSize: '0.9rem', fontWeight: '600', color: '#10b981' }}>
+                        Fiyat: {project.accepted_quoted_price.toLocaleString('tr-TR')}₺
+                      </span>
                     </div>
                   )}
                 </div>

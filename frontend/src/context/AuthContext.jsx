@@ -97,6 +97,8 @@ export function AuthProvider({ children }) {
     setToken(null)
     setRefreshToken(null)
     setUser(null)
+    // Redirect to home page
+    window.location.href = '/'
   }
 
   return (

@@ -3,7 +3,68 @@ import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken } from '../middleware/supabaseAuth.js'
 
 const router = express.Router()
- 
+
+// Verify email confirmation token
+router.post('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.body
+
+    if (!token) {
+      return res.status(400).json({ error: 'Onay token\'ı gerekli.' })
+    }
+
+    // Verify the token with Supabase
+    const { data, error } = await supabaseAdmin.auth.verifyOtp({
+      token_hash: token,
+      type: 'signup'
+    })
+
+    if (error) {
+      console.error('Email verification error:', error)
+      
+      // Try alternative method - verify using the token directly
+      try {
+        const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token)
+        
+        if (userError || !userData) {
+          return res.status(400).json({ error: 'Geçersiz veya süresi dolmuş onay linki.' })
+        }
+
+        // User is verified, get profile info
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('username')
+          .eq('id', userData.user.id)
+          .single()
+
+        return res.json({
+          message: 'Email başarıyla onaylandı.',
+          username: profile?.username,
+          email: userData.user.email
+        })
+      } catch (altError) {
+        return res.status(400).json({ error: 'Geçersiz veya süresi dolmuş onay linki.' })
+      }
+    }
+
+    // Get user profile
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('username')
+      .eq('id', data.user.id)
+      .single()
+
+    res.json({
+      message: 'Email başarıyla onaylandı.',
+      username: profile?.username,
+      email: data.user.email
+    })
+  } catch (error) {
+    console.error('Verify email error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
 // Login with username/password
 router.post('/login', async (req, res) => {
   try {
@@ -58,7 +119,149 @@ router.post('/login', async (req, res) => {
   }
 })
 
-// Register new user
+// Public register endpoint (for landing page - creates customer)
+router.post('/register-public', async (req, res) => {
+  try {
+    const { email, password, username, company_name } = req.body
+
+    if (!email || !password || !username) {
+      return res.status(400).json({ error: 'Email, şifre ve kullanıcı adı gerekli.' })
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Geçerli bir email adresi giriniz.' })
+    }
+
+    // Check if email already exists
+    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
+    const emailExists = existingUser?.users?.some(u => u.email === email)
+    
+    if (emailExists) {
+      return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+    }
+
+    // Check if username already exists
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('username', username)
+      .single()
+
+    if (existingProfile) {
+      return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+    }
+
+    // Get redirect URL from environment or use default
+    // In development, use localhost; in production, use the domain
+    const redirectUrl = process.env.FRONTEND_URL || 
+      (process.env.NODE_ENV === 'production' ? 'https://www.kunye.tech' : 'http://localhost:5173')
+    const confirmUrl = `${redirectUrl}/auth/confirm`
+
+    // Create user in Supabase Auth with customer role
+    // For local development, skip email confirmation. Set NODE_ENV=production to require email confirmation
+    const requireEmailConfirmation = process.env.NODE_ENV === 'production' && process.env.REQUIRE_EMAIL_CONFIRMATION !== 'false'
+    
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: !requireEmailConfirmation, // Require email confirmation only in production
+      user_metadata: {
+        username,
+        role: 'customer',
+        company_name: company_name || ''
+      },
+      email_redirect_to: confirmUrl
+    })
+
+    if (error) {
+      console.error('Auth create user error:', error)
+      
+      if (error.message.includes('already been registered') || 
+          error.message.includes('User already registered') ||
+          error.message.includes('duplicate key')) {
+        return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+      }
+      
+      if (error.message.includes('invalid email')) {
+        return res.status(400).json({ error: 'Geçersiz email adresi.' })
+      }
+      
+      if (error.message.includes('password')) {
+        return res.status(400).json({ error: 'Şifre en az 6 karakter olmalıdır.' })
+      }
+      
+      return res.status(400).json({ error: 'Kullanıcı oluşturulurken bir hata oluştu.' })
+    }
+
+    // Create or update profile with customer role
+    // Use upsert because trigger might have already created a profile
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: data.user.id,
+        username,
+        role: 'customer',
+        company_name: company_name || ''
+      }, { onConflict: 'id' })
+
+    if (profileError) {
+      console.error('Profile create error:', profileError)
+      
+      // Rollback: delete auth user if profile creation fails
+      await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+      
+      if (profileError.code === '23505') {
+        // Check if it's username conflict
+        const { data: existingProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('username')
+          .eq('username', username)
+          .single()
+        
+        if (existingProfile && existingProfile.username === username) {
+          return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+        }
+        
+        return res.status(400).json({ error: 'Bu kullanıcı zaten kayıtlı.' })
+      }
+      
+      return res.status(500).json({ error: 'Profil oluşturulurken hata oluştu.' })
+    }
+
+    // Note: Supabase should automatically send confirmation email when email_confirm: false
+    // If email doesn't arrive, check:
+    // 1. Supabase Dashboard -> Authentication -> Logs (check for email sending errors)
+    // 2. Spam folder
+    // 3. SMTP settings (Supabase -> Authentication -> Email -> SMTP Settings)
+    console.log('User created, confirmation email should be sent automatically by Supabase')
+    console.log('If email not received, check Supabase logs and spam folder')
+
+    // If email confirmation is required, show confirmation message
+    // Otherwise, auto-login the user
+    if (requireEmailConfirmation) {
+      res.status(201).json({
+        message: 'Kayıt başarıyla oluşturuldu. Email adresinize gönderilen onay linkine tıklayarak hesabınızı aktifleştirin.',
+        requires_confirmation: true,
+        email: email
+      })
+    } else {
+      // Auto-confirm in development - return user info for auto-login
+      res.status(201).json({
+        message: 'Kayıt başarıyla tamamlandı.',
+        requires_confirmation: false,
+        username: username,
+        email: email
+      })
+    }
+  } catch (error) {
+    console.error('Public register error:', error)
+    res.status(500).json({ error: error.message || 'Sunucu hatası.' })
+  }
+})
+
+// Register new user (admin/customer only - requires auth)
 router.post('/register', authenticateToken, async (req, res) => {
   try {
     const { password, username, role = 'user', company_name } = req.body

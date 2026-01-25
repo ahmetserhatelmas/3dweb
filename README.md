@@ -1,18 +1,30 @@
-# M-Chain MVP
+# Kunye - Teknik Veri Paylaşım Platformu
 
 Web Tabanlı Teknik Veri Paylaşım ve Doğrulama Platformu
 
 ## 🎯 Proje Özeti
 
-Mühendislik ve İmalat (Tedarikçi) arasındaki teknik veri paylaşımını kolaylaştıran, 3D görüntüleme ve interaktif onay süreçlerini içeren web tabanlı bir SaaS platformu.
+Müşteriler, Tedarikçiler ve Mühendislik ekipleri arasındaki teknik veri paylaşımını kolaylaştıran, 3D görüntüleme ve interaktif onay süreçlerini içeren web tabanlı bir SaaS platformu.
 
 ## ✨ Özellikler
 
 - **3D STEP Viewer**: Tarayıcıda STEP dosyalarını görüntüleme
 - **Ölçüm Aracı**: Model üzerinde mesafe ölçümü (mm)
-- **Admin Paneli**: Proje oluşturma, dosya yükleme, checklist hazırlama
-- **Tedarikçi Paneli**: İş listesi, 3D inceleme, onay süreci
+- **Çoklu Rol Sistemi**: Admin, Müşteri ve Tedarikçi rolleri
+- **Admin Paneli**: Müşteri/Tedarikçi oluşturma, proje yönetimi
+- **Müşteri Paneli**: Kendi tedarikçilerini oluşturma, proje atama
+- **Tedarikçi Paneli**: İş listesi, 3D inceleme, döküman yükleme, onay süreci
+- **Checklist Sistemi**: Proje bazlı kontrol listesi
 - **Durum Takibi**: Bekliyor / İnceleniyor / Tamamlandı
+- **Döküman Yönetimi**: Tedarikçi döküman yükleme/silme
+
+## 🔐 Rol Sistemi
+
+| Rol | Yetkiler |
+|-----|----------|
+| **Admin** | Tüm kullanıcıları ve projeleri yönetir |
+| **Müşteri** | Kendi tedarikçilerini oluşturur, proje atar |
+| **Tedarikçi** | Atanan projeleri görür, checklist'i tamamlar |
 
 ## 🚀 Kurulum
 
@@ -20,6 +32,7 @@ Mühendislik ve İmalat (Tedarikçi) arasındaki teknik veri paylaşımını kol
 
 - Node.js 18+
 - npm veya yarn
+- Supabase hesabı
 
 ### Adımlar
 
@@ -30,10 +43,17 @@ npm install
 cd frontend && npm install && cd ..
 ```
 
-2. **Veritabanını oluşturun:**
+2. **Supabase kurulumu:**
 
-```bash
-npm run setup
+- Supabase'de yeni proje oluşturun
+- `supabase/schema.sql` dosyasını SQL Editor'da çalıştırın
+- `.env` dosyası oluşturun:
+
+```env
+SUPABASE_URL=your-project-url
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+JWT_SECRET=your-jwt-secret
 ```
 
 3. **Uygulamayı başlatın:**
@@ -47,66 +67,82 @@ npm run dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001
 
-## 🔑 Demo Hesapları
+## 🔑 Giriş Sistemi
 
-| Rol | Kullanıcı | Şifre |
-|-----|-----------|-------|
-| Admin | admin | admin123 |
-| Tedarikçi | tedarikci | user123 |
-| Tedarikçi | tedarikci2 | user123 |
+Kullanıcı adı ve şifre ile giriş yapılır (email kullanılmaz).
+
+```
+Kullanıcı Adı: admin
+Şifre: admin123
+```
 
 ## 📁 Proje Yapısı
 
 ```
 ├── backend/
-│   ├── db/           # Veritabanı bağlantısı
+│   ├── db/           # Supabase bağlantısı
 │   ├── middleware/   # Auth middleware
 │   ├── routes/       # API endpoints
-│   ├── server.js     # Express server
-│   └── setup-db.js   # DB kurulum scripti
+│   └── server.js     # Express server
 ├── frontend/
 │   └── src/
 │       ├── components/   # React bileşenleri
 │       ├── context/      # Auth context
+│       ├── lib/          # API helpers
 │       ├── pages/        # Sayfa bileşenleri
 │       └── styles/       # CSS dosyaları
-├── data/             # SQLite veritabanı
-├── uploads/          # Yüklenen dosyalar
-└── public/           # Static dosyalar
+├── supabase/         # Schema ve migration dosyaları
+└── public/           # Static dosyalar (WASM vb.)
 ```
 
 ## 🛠 Teknolojiler
 
 - **Frontend**: React 18, Vite, Three.js, occt-import-js
 - **Backend**: Node.js, Express
-- **Database**: SQLite (better-sqlite3)
-- **Auth**: JWT
+- **Database**: Supabase (PostgreSQL)
+- **Storage**: Supabase Storage
+- **Auth**: Supabase Auth + JWT
 - **3D**: Three.js + OpenCascade (WASM)
+- **Deployment**: Railway (Backend) + Vercel (Frontend)
 
 ## 📝 API Endpoints
 
 ### Auth
-- `POST /api/auth/login` - Giriş
+- `POST /api/auth/login` - Kullanıcı adı ile giriş
+- `POST /api/auth/register` - Yeni kullanıcı kayıt
 - `GET /api/auth/me` - Kullanıcı bilgisi
+- `GET /api/auth/users` - Kullanıcı listesi (rol bazlı filtreleme)
 - `GET /api/auth/suppliers` - Tedarikçi listesi
+- `PATCH /api/auth/users/:id` - Kullanıcı güncelle
+- `DELETE /api/auth/users/:id` - Kullanıcı sil
 
 ### Projects
-- `GET /api/projects` - Proje listesi
+- `GET /api/projects` - Proje listesi (rol bazlı)
 - `GET /api/projects/:id` - Proje detayı
 - `POST /api/projects` - Yeni proje
 - `PATCH /api/projects/:id/checklist/:itemId` - Checklist güncelle
+- `DELETE /api/projects/:id/documents/:documentId` - Döküman sil
 - `POST /api/projects/:id/complete` - İşi tamamla
 
 ### Upload
 - `POST /api/upload/step/:projectId` - STEP dosyası yükle
 - `POST /api/upload/document/:projectId` - Döküman yükle
 
+### Health
+- `GET /api/health` - Sunucu sağlık kontrolü
+
+## 🌐 Deployment
+
+### Backend (Railway)
+- Railway.app'da deploy edilir
+- Environment variables eklenir
+- Otomatik keepalive cron job ile Supabase aktif tutulur
+
+### Frontend (Vercel)
+- Vercel'de deploy edilir
+- `VITE_API_URL` environment variable olarak Railway URL'i eklenir
+- SPA routing için vercel.json yapılandırması
+
 ## 📄 Lisans
 
 MIT
-
-
-
-
-
-

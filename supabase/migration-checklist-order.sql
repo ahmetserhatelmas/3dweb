@@ -29,3 +29,8 @@ SELECT
 FROM public.checklist_items 
 ORDER BY project_id, order_index;
 
+
+
+
+
+

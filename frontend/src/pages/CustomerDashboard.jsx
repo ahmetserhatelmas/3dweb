@@ -6,6 +6,7 @@ import {
   Plus, LogOut, Box, Clock, CheckCircle, 
   Eye, FileBox, Users, Calendar, ChevronRight, UserPlus
 } from 'lucide-react'
+import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
 
 export default function CustomerDashboard() {
@@ -189,19 +190,61 @@ export default function CustomerDashboard() {
                   <ChevronRight size={20} className="card-arrow" />
                 </div>
                 
-                <h3 className="project-name">{project.name}</h3>
+                <h3 className="project-name">
+                  {project.name}
+                  {project.current_revision && (
+                    <span className="revision-badge" title="Aktif Revizyon">
+                      Rev. {project.current_revision}
+                    </span>
+                  )}
+                </h3>
                 <p className="project-part">Parça No: {project.part_number}</p>
                 
                 <div className="project-meta">
                   <div className="meta-item">
                     <Users size={16} />
-                    <span>{project.supplier_name || 'Atanmamış'}</span>
+                    <span>
+                      {/* Bekliyor durumunda tüm atananları, kabul edildiyse sadece kabul edileni göster */}
+                      {project.project_suppliers && project.project_suppliers.length > 0 ? (
+                        project.status === 'pending' && project.is_quotation ? (
+                          // Bekliyor: Tüm atanan tedarikçileri göster
+                          project.project_suppliers.map(ps => ps.supplier?.company_name || ps.supplier?.username).join(', ')
+                        ) : (
+                          // Kabul edildi: Sadece accepted olanı göster
+                          project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.company_name ||
+                          project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.username ||
+                          project.supplier_name ||
+                          'Atanmamış'
+                        )
+                      ) : (
+                        project.supplier_name || 'Atanmamış'
+                      )}
+                    </span>
                   </div>
                   {project.deadline && (
-                    <div className="meta-item">
+                    <div className={`meta-item deadline ${formatDeadlineInfo(project.deadline)?.urgency || ''}`}>
                       <Calendar size={16} />
-                      <span>{new Date(project.deadline).toLocaleDateString('tr-TR')}</span>
+                      <span>
+                        Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                        <strong className="days-remaining"> ({formatDeadlineInfo(project.deadline)?.daysStr})</strong>
+                      </span>
                     </div>
+                  )}
+                  {/* Show accepted quotation price */}
+                  {project.project_suppliers && project.project_suppliers.length > 0 && (
+                    (() => {
+                      const acceptedSupplier = project.project_suppliers.find(ps => ps.status === 'accepted')
+                      if (acceptedSupplier && acceptedSupplier.quoted_price) {
+                        return (
+                          <div className="meta-item price">
+                            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: '#10b981' }}>
+                              Fiyat: {acceptedSupplier.quoted_price.toLocaleString('tr-TR')}₺
+                            </span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()
                   )}
                 </div>
 

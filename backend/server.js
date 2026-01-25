@@ -7,6 +7,7 @@ import cron from 'node-cron'
 import authRoutes from './routes/auth.js'
 import projectRoutes from './routes/projects.js'
 import uploadRoutes from './routes/upload.js'
+import revisionRoutes from './routes/revisions.js'
 import { supabaseAdmin } from './db/supabase.js'
 
 // Load environment variables
@@ -29,6 +30,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 app.use('/api/auth', authRoutes)
 app.use('/api/projects', projectRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/api/revisions', revisionRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {

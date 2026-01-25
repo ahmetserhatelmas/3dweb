@@ -294,6 +294,21 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.revision-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  white-space: nowrap;
 }
 
 .project-part {
@@ -319,7 +334,36 @@
 }
 
 .meta-item.deadline {
-  color: var(--status-warning);
+  color: #ef4444;
+  font-weight: 500;
+}
+
+/* Deadline urgency levels */
+.meta-item.deadline.normal {
+  color: var(--text-secondary);
+}
+
+.meta-item.deadline.warning {
+  color: #f59e0b; /* Amber/Warning */
+}
+
+.meta-item.deadline.urgent {
+  color: #ef4444; /* Red */
+  font-weight: 600;
+}
+
+.meta-item.deadline.overdue {
+  color: #dc2626; /* Dark Red */
+  font-weight: 700;
+  background: rgba(220, 38, 38, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+.meta-item.deadline .days-remaining {
+  font-size: 0.85em;
+  font-weight: 600;
+  margin-left: 0.25rem;
 }
 
 .project-progress {

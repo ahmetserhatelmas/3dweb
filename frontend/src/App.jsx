@@ -1,12 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
-import Login from './pages/Login'
+import Home from './pages/Home'
+import EmailConfirm from './pages/EmailConfirm'
 import AdminDashboard from './pages/AdminDashboard'
 import CustomerDashboard from './pages/CustomerDashboard'
 import UserDashboard from './pages/UserDashboard'
 import ProjectDetail from './pages/ProjectDetail'
 import NewProject from './pages/NewProject'
 import Users from './pages/Users'
+import Quotations from './pages/Quotations'
+import QuotationDetail from './pages/QuotationDetail'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth()
@@ -21,7 +24,7 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/" replace />
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -31,7 +34,7 @@ function ProtectedRoute({ children, allowedRoles }) {
       customer: '/customer',
       user: '/dashboard'
     }
-    return <Navigate to={redirectMap[user.role] || '/login'} replace />
+    return <Navigate to={redirectMap[user.role] || '/'} replace />
   }
 
   return children
@@ -41,18 +44,19 @@ export default function App() {
   const { user } = useAuth()
 
   const getDefaultRoute = () => {
-    if (!user) return '/login'
+    if (!user) return '/'
     const routeMap = {
       admin: '/admin',
       customer: '/customer',
       user: '/dashboard'
     }
-    return routeMap[user.role] || '/login'
+    return routeMap[user.role] || '/'
   }
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to={getDefaultRoute()} replace /> : <Login />} />
+      <Route path="/" element={<Home />} />
+      <Route path="/auth/confirm" element={<EmailConfirm />} />
       
       {/* Admin Routes */}
       <Route path="/admin" element={
@@ -99,6 +103,18 @@ export default function App() {
         </ProtectedRoute>
       } />
       
+      <Route path="/quotations" element={
+        <ProtectedRoute allowedRoles={['user']}>
+          <Quotations />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/quotation/:id" element={
+        <ProtectedRoute allowedRoles={['user']}>
+          <QuotationDetail />
+        </ProtectedRoute>
+      } />
+      
       {/* Shared Routes */}
       <Route path="/project/:id" element={
         <ProtectedRoute>
@@ -106,7 +122,6 @@ export default function App() {
         </ProtectedRoute>
       } />
       
-      <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
       <Route path="*" element={<Navigate to={getDefaultRoute()} replace />} />
     </Routes>
   )

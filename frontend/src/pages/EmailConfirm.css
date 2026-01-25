@@ -1,0 +1,82 @@
+.email-confirm-page {
+  min-height: 100vh;
+  background: #0a0e27;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.confirm-container {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 3rem;
+  max-width: 500px;
+  width: 100%;
+  text-align: center;
+}
+
+.confirm-icon {
+  margin: 0 auto 2rem;
+  display: block;
+}
+
+.confirm-icon.success {
+  color: #00d4aa;
+}
+
+.confirm-icon.error {
+  color: #ef4444;
+}
+
+.confirm-icon.spinning {
+  animation: spin 1s linear infinite;
+  color: #00d4aa;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.confirm-container h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 1rem;
+}
+
+.confirm-container p {
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+
+.redirect-message {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+}
+
+.btn-back {
+  background: #00d4aa;
+  color: #0a0e27;
+  border: none;
+  padding: 0.875rem 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 1.5rem;
+}
+
+.btn-back:hover {
+  background: #00b894;
+  transform: translateY(-2px);
+}
+
