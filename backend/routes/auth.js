@@ -261,6 +261,113 @@ router.post('/register-public', async (req, res) => {
   }
 })
 
+// Register new supplier (simplified endpoint for quick supplier creation)
+router.post('/register-supplier', authenticateToken, async (req, res) => {
+  try {
+    const { username, password, company_name, email } = req.body
+
+    if (!username || !password || !email) {
+      return res.status(400).json({ error: 'Kullanıcı adı, şifre ve email gerekli.' })
+    }
+
+    // Only customers and admins can create suppliers
+    if (req.user.role !== 'customer' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Bu işlem için yetki gerekli.' })
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Geçerli bir email adresi giriniz.' })
+    }
+
+    // Check if email already exists
+    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
+    const emailExists = existingUser?.users?.some(u => u.email === email)
+    
+    if (emailExists) {
+      return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+    }
+
+    // Check if username already exists
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('username', username)
+      .single()
+
+    if (existingProfile) {
+      return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+    }
+
+    // Create user in Supabase Auth with 'user' role (supplier)
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        username,
+        role: 'user',
+        company_name: company_name || ''
+      }
+    })
+
+    if (error) {
+      console.error('Auth create user error:', error)
+      
+      if (error.message.includes('already been registered') || 
+          error.message.includes('User already registered') ||
+          error.message.includes('duplicate key')) {
+        return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+      }
+      
+      if (error.message.includes('invalid email')) {
+        return res.status(400).json({ error: 'Geçersiz email adresi.' })
+      }
+      
+      if (error.message.includes('password')) {
+        return res.status(400).json({ error: 'Şifre en az 6 karakter olmalıdır.' })
+      }
+      
+      return res.status(400).json({ error: 'Kullanıcı oluşturulurken bir hata oluştu.' })
+    }
+
+    // Create/update profile
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: data.user.id,
+        username,
+        role: 'user',
+        company_name: company_name || '',
+        created_by: req.user.id
+      }, { onConflict: 'id' })
+
+    if (profileError) {
+      console.error('Profile create error:', profileError)
+      
+      // Rollback: delete auth user if profile creation fails
+      await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+      
+      if (profileError.code === '23505') {
+        return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+      }
+      
+      return res.status(500).json({ error: 'Profil oluşturulurken hata oluştu.' })
+    }
+
+    res.status(201).json({
+      message: 'Tedarikçi başarıyla oluşturuldu.',
+      id: data.user.id,
+      username,
+      company_name: company_name || ''
+    })
+  } catch (error) {
+    console.error('Register supplier error:', error)
+    res.status(500).json({ error: error.message || 'Sunucu hatası.' })
+  }
+})
+
 // Register new user (admin/customer only - requires auth)
 router.post('/register', authenticateToken, async (req, res) => {
   try {

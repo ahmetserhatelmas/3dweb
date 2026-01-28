@@ -5,7 +5,7 @@ import API_URL from '../lib/api'
 import { 
   ArrowLeft, ArrowRight, Save, Upload, 
   FileBox, Box, LogOut, Users, X, File,
-  FileText, FileSpreadsheet, Image, Check
+  FileText, FileSpreadsheet, Image, Check, UserPlus
 } from 'lucide-react'
 import './NewProject.css'
 
@@ -27,6 +27,16 @@ export default function NewProject() {
   const [suppliers, setSuppliers] = useState([])
   const [currentStep, setCurrentStep] = useState(1)
   const [uploadProgress, setUploadProgress] = useState(0)
+  
+  // New supplier modal
+  const [showNewSupplierModal, setShowNewSupplierModal] = useState(false)
+  const [newSupplierForm, setNewSupplierForm] = useState({
+    username: '',
+    password: '',
+    company_name: '',
+    email: ''
+  })
+  const [savingSupplier, setSavingSupplier] = useState(false)
   
   const isCustomer = user?.role === 'customer'
   const basePath = isCustomer ? '/customer' : '/admin'
@@ -125,7 +135,7 @@ export default function NewProject() {
       const newFiles = data.files.map(file => ({
         ...file,
         description: '',
-        quantity: file.file_type === 'step' ? 1 : null,
+        quantity: file.file_type === 'step' ? '' : null, // Boş başlasın
         notes: ''
       }))
       
@@ -160,7 +170,64 @@ export default function NewProject() {
     }))
   }
 
+  const handleAddNewSupplier = async (e) => {
+    e.preventDefault()
+    setSavingSupplier(true)
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/register-supplier`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newSupplierForm)
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Tedarikçi eklenemedi')
+      }
+
+      const newSupplier = await res.json()
+      
+      // Refresh suppliers list
+      await fetchSuppliers()
+      
+      // Auto-select the new supplier
+      setProjectInfo(prev => ({
+        ...prev,
+        selectedSuppliers: [...prev.selectedSuppliers, newSupplier.id]
+      }))
+      
+      // Close modal and reset form
+      setShowNewSupplierModal(false)
+      setNewSupplierForm({
+        username: '',
+        password: '',
+        company_name: '',
+        email: ''
+      })
+      
+      alert('Tedarikçi başarıyla eklendi ve projeye atandı!')
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setSavingSupplier(false)
+    }
+  }
+
   const handleSubmit = async () => {
+    // Validate STEP files have quantity
+    const stepFilesWithoutQuantity = uploadedFiles.filter(
+      file => file.file_type === 'step' && (!file.quantity || file.quantity < 1)
+    )
+    
+    if (stepFilesWithoutQuantity.length > 0) {
+      alert('Lütfen tüm STEP dosyaları için adet belirtin (en az 1).')
+      return
+    }
+    
     setLoading(true)
 
     try {
@@ -355,13 +422,15 @@ export default function NewProject() {
                       
                       {file.file_type === 'step' && (
                         <div className="input-group input-small">
-                          <label>Adet</label>
+                          <label>Adet *</label>
                 <input
                             type="number"
                   className="input"
                             min="1"
-                            value={file.quantity || 1}
-                            onChange={(e) => updateFileDetail(index, 'quantity', parseInt(e.target.value))}
+                            value={file.quantity || ''}
+                            onChange={(e) => updateFileDetail(index, 'quantity', e.target.value ? parseInt(e.target.value) : '')}
+                            placeholder="En az 1"
+                            required
                           />
                         </div>
                       )}
@@ -415,7 +484,17 @@ export default function NewProject() {
               </div>
 
               <div className="suppliers-section">
-                <label>Tedarikçiler * (birden fazla seçebilirsiniz)</label>
+                <div className="suppliers-header">
+                  <label>Tedarikçiler * (birden fazla seçebilirsiniz)</label>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-add-supplier"
+                    onClick={() => setShowNewSupplierModal(true)}
+                  >
+                    <UserPlus size={16} />
+                    Yeni Tedarikçi
+                  </button>
+                </div>
                 <div className="suppliers-grid">
                   {suppliers.map(supplier => (
                     <div 
@@ -466,7 +545,20 @@ export default function NewProject() {
             {currentStep < 3 ? (
               <button 
                 className="btn btn-primary"
-                onClick={() => setCurrentStep(prev => prev + 1)}
+                onClick={() => {
+                  // Step 2'den 3'e geçerken adet kontrolü yap
+                  if (currentStep === 2) {
+                    const stepFilesWithoutQuantity = uploadedFiles.filter(
+                      file => file.file_type === 'step' && (!file.quantity || file.quantity < 1)
+                    )
+                    
+                    if (stepFilesWithoutQuantity.length > 0) {
+                      alert('Lütfen tüm STEP dosyaları için adet belirtin (en az 1).')
+                      return
+                    }
+                  }
+                  setCurrentStep(prev => prev + 1)
+                }}
                 disabled={currentStep === 1 && !canProceedToStep2}
               >
                 İleri
@@ -489,6 +581,94 @@ export default function NewProject() {
           </div>
         </div>
       </main>
+
+      {/* New Supplier Modal */}
+      {showNewSupplierModal && (
+        <div className="modal-overlay" onClick={() => setShowNewSupplierModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                <UserPlus size={20} />
+                Yeni Tedarikçi Ekle
+              </h2>
+              <button className="modal-close" onClick={() => setShowNewSupplierModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNewSupplier} className="modal-body">
+              <div className="form-grid">
+                <div className="input-group input-full">
+                  <label>Firma Adı *</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={newSupplierForm.company_name}
+                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, company_name: e.target.value }))}
+                    placeholder="Örn: ABC Makina"
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Kullanıcı Adı *</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={newSupplierForm.username}
+                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, username: e.target.value }))}
+                    placeholder="tedarikci123"
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Email *</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={newSupplierForm.email}
+                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="info@firma.com"
+                    required
+                  />
+                </div>
+
+                <div className="input-group input-full">
+                  <label>Şifre *</label>
+                  <input
+                    type="password"
+                    className="input"
+                    value={newSupplierForm.password}
+                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder="En az 6 karakter"
+                    minLength={6}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowNewSupplierModal(false)}
+                  disabled={savingSupplier}
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={savingSupplier}
+                >
+                  {savingSupplier ? 'Ekleniyor...' : 'Ekle ve Projeye Ata'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

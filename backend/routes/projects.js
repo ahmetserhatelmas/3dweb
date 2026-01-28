@@ -241,16 +241,35 @@ router.post('/quotations/:projectId/submit', authenticateToken, async (req, res)
     }
 
     const { projectId } = req.params
-    const { price, note, delivery_date } = req.body
+    const { items, delivery_date, price, note } = req.body
 
-    console.log('Submit quotation:', { projectId, userId: req.user.id, price, delivery_date })
+    // Support both old (price/note) and new (items) format for backward compatibility
+    const isItemBasedQuotation = items && Array.isArray(items)
 
-    if (!price || price <= 0) {
-      return res.status(400).json({ error: 'Geçerli bir fiyat giriniz.' })
-    }
+    console.log('Submit quotation:', { projectId, userId: req.user.id, isItemBased: isItemBasedQuotation, itemCount: items?.length, delivery_date })
 
     if (!delivery_date) {
       return res.status(400).json({ error: 'Termin tarihi giriniz.' })
+    }
+
+    let totalPrice
+    if (isItemBasedQuotation) {
+      if (items.length === 0) {
+        return res.status(400).json({ error: 'En az bir teklif kalemi giriniz.' })
+      }
+      // Calculate total price from items
+      totalPrice = items.reduce((sum, item) => {
+        const itemPrice = parseFloat(item.price) || 0
+        const quantity = parseInt(item.quantity) || 1
+        return sum + (itemPrice * quantity)
+      }, 0)
+    } else {
+      // Old format
+      totalPrice = parseFloat(price) || 0
+    }
+
+    if (!totalPrice || totalPrice <= 0) {
+      return res.status(400).json({ error: 'Geçerli bir fiyat giriniz.' })
     }
 
     // Check if supplier has this quotation request
@@ -259,7 +278,7 @@ router.post('/quotations/:projectId/submit', authenticateToken, async (req, res)
       .select('*')
       .eq('project_id', projectId)
       .eq('supplier_id', req.user.id)
-      .maybeSingle()  // Use maybeSingle instead of single to avoid error on no rows
+      .maybeSingle()
 
     console.log('Existing quotation check:', { existing, checkError })
 
@@ -275,17 +294,82 @@ router.post('/quotations/:projectId/submit', authenticateToken, async (req, res)
       return res.status(400).json({ error: 'Bu teklif reddedilmiş.' })
     }
 
-    // Update quotation using the existing record's id
+    // Handle item-based quotations
+    if (isItemBasedQuotation) {
+      // Get or create quotations record
+      let quotation
+      const { data: existingQuotation } = await supabaseAdmin
+        .from('quotations')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('supplier_id', req.user.id)
+        .maybeSingle()
+
+      if (existingQuotation) {
+        // Update existing quotation
+        const { data: updated, error: updateError } = await supabaseAdmin
+          .from('quotations')
+          .update({
+            total_price: totalPrice,
+            delivery_date: delivery_date,
+            status: 'pending',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingQuotation.id)
+          .select()
+          .single()
+
+        if (updateError) throw updateError
+        quotation = updated
+
+        // Delete old items
+        await supabaseAdmin
+          .from('quotation_items')
+          .delete()
+          .eq('quotation_id', existingQuotation.id)
+      } else {
+        // Create new quotation
+        const { data: created, error: createError } = await supabaseAdmin
+          .from('quotations')
+          .insert({
+            project_id: projectId,
+            supplier_id: req.user.id,
+            total_price: totalPrice,
+            delivery_date: delivery_date,
+            status: 'pending'
+          })
+          .select()
+          .single()
+
+        if (createError) throw createError
+        quotation = created
+      }
+
+      // Insert quotation items
+      const itemsToInsert = items.map(item => ({
+        quotation_id: quotation.id,
+        file_id: item.file_id || null,
+        item_type: item.item_type || 'file',
+        title: item.title || '',
+        price: parseFloat(item.price),
+        quantity: parseInt(item.quantity) || 1,
+        notes: item.notes || null
+      }))
+
+      const { error: itemsError } = await supabaseAdmin
+        .from('quotation_items')
+        .insert(itemsToInsert)
+
+      if (itemsError) throw itemsError
+    }
+
+    // Update project_suppliers status
     const updateData = {
       status: 'quoted',
-      quoted_price: price,
+      quoted_price: totalPrice,
       quoted_note: note || null,
-      quoted_at: new Date().toISOString()
-    }
-    
-    // Add delivery_date if provided
-    if (delivery_date) {
-      updateData.delivery_date = delivery_date
+      quoted_at: new Date().toISOString(),
+      delivery_date: delivery_date
     }
     
     console.log('Attempting to update with data:', updateData, 'for id:', existing.id)
@@ -293,9 +377,9 @@ router.post('/quotations/:projectId/submit', authenticateToken, async (req, res)
     // Try RPC first to bypass RLS
     const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('submit_quotation', {
       p_project_supplier_id: existing.id,
-      p_quoted_price: req.body.price,
-      p_quoted_note: req.body.note || null,
-      p_delivery_date: req.body.delivery_date || null
+      p_quoted_price: totalPrice,
+      p_quoted_note: note || null,
+      p_delivery_date: delivery_date
     })
 
     if (rpcError) {
@@ -335,7 +419,8 @@ router.post('/quotations/:projectId/submit', authenticateToken, async (req, res)
 
     res.json({ 
       message: 'Teklif başarıyla gönderildi.', 
-      quotation: updated || { id: existing.id, status: 'quoted', quoted_price: price } 
+      quotation: updated || { id: existing.id, status: 'quoted', quoted_price: totalPrice },
+      total_price: totalPrice
     })
   } catch (error) {
     console.error('Submit quotation error:', error)
@@ -365,7 +450,7 @@ router.get('/:projectId/quotations', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Bu projenin tekliflerini görme yetkiniz yok.' })
     }
 
-    // Get all quotations for this project
+    // Get all quotations from project_suppliers (main table)
     const { data: quotations, error } = await supabaseAdmin
       .from('project_suppliers')
       .select(`
@@ -375,11 +460,43 @@ router.get('/:projectId/quotations', authenticateToken, async (req, res) => {
       .eq('project_id', projectId)
       .order('quoted_at', { ascending: false, nullsFirst: false })
 
-    console.log('Quotations for project:', { count: quotations?.length, quotations, error })
-
     if (error) throw error
 
-    res.json(quotations || [])
+    // For each quotation, fetch detailed items from quotations table
+    const quotationsWithDetails = await Promise.all(
+      (quotations || []).map(async (q) => {
+        // Get quotation details from quotations table
+        const { data: quotationData } = await supabaseAdmin
+          .from('quotations')
+          .select(`
+            id,
+            total_price,
+            delivery_date,
+            quotation_items(
+              id,
+              file_id,
+              item_type,
+              title,
+              price,
+              quantity,
+              notes,
+              file:project_files(id, file_name, file_type, revision)
+            )
+          `)
+          .eq('project_id', projectId)
+          .eq('supplier_id', q.supplier_id)
+          .maybeSingle()
+
+        return {
+          ...q,
+          quotation: quotationData ? [quotationData] : null
+        }
+      })
+    )
+
+    console.log('Quotations for project:', { count: quotationsWithDetails?.length })
+
+    res.json(quotationsWithDetails || [])
   } catch (error) {
     console.error('Get project quotations error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
@@ -527,6 +644,54 @@ router.post('/:projectId/quotations/:supplierId/reject', authenticateToken, asyn
   }
 })
 
+// Add customer note to quotation (müşteri teklif notu ekle)
+router.post('/:projectId/quotations/:supplierId/note', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, supplierId } = req.params
+    const { customer_note } = req.body
+
+    // Create FRESH Supabase client
+    const { createClient } = await import('@supabase/supabase-js')
+    const freshClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    // Check if user is the project creator
+    const { data: project, error: projectError } = await freshClient
+      .from('projects')
+      .select('created_by')
+      .eq('id', projectId)
+      .single()
+
+    if (projectError || !project) {
+      return res.status(404).json({ error: 'Proje bulunamadı.' })
+    }
+
+    if (req.user.role !== 'admin' && project.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Bu işlemi yapma yetkiniz yok.' })
+    }
+
+    // Add customer note
+    const { error } = await freshClient
+      .from('project_suppliers')
+      .update({ 
+        customer_note,
+        customer_note_at: new Date().toISOString()
+      })
+      .eq('project_id', projectId)
+      .eq('supplier_id', supplierId)
+
+    if (error) throw error
+
+    res.json({ message: 'Not eklendi.' })
+  } catch (error) {
+    console.error('Add customer note error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
 // Get single project with checklist
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
@@ -543,7 +708,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
       .select(`
         *,
         supplier:profiles!projects_assigned_to_fkey(id, username, company_name),
-        creator:profiles!projects_created_by_fkey(username, company_name)
+        creator:profiles!projects_created_by_fkey(username, company_name),
+        project_suppliers(
+          id,
+          status,
+          quoted_price,
+          supplier:profiles(id, username, company_name)
+        )
       `)
       .eq('id', req.params.id)
       .single()
@@ -572,7 +743,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
       // Check if supplier has access to this project (either as quotation or accepted)
       const { data: supplierStatus } = await freshClient
         .from('project_suppliers')
-        .select('status, quoted_price, quoted_note, delivery_date, quoted_at')
+        .select('status, quoted_price, quoted_note, delivery_date, quoted_at, customer_note, customer_note_at')
         .eq('project_id', req.params.id)
         .eq('supplier_id', req.user.id)
         .single()
@@ -582,6 +753,35 @@ router.get('/:id', authenticateToken, async (req, res) => {
       }
 
       supplierQuotationStatus = supplierStatus
+      
+      // Get quotation items if exists
+      if (supplierStatus.status === 'quoted' || supplierStatus.status === 'accepted') {
+        const { data: quotationData } = await freshClient
+          .from('quotations')
+          .select(`
+            id,
+            total_price,
+            delivery_date,
+            quotation_items:quotation_items(
+              *,
+              file:project_files(id, file_name, file_type, revision)
+            )
+          `)
+          .eq('project_id', req.params.id)
+          .eq('supplier_id', req.user.id)
+          .maybeSingle()
+
+        if (quotationData && quotationData.quotation_items) {
+          // Map items to include file info
+          supplierQuotationStatus.quotation_items = quotationData.quotation_items.map(item => ({
+            ...item,
+            file_name: item.file?.file_name || item.title,
+            file_type: item.file?.file_type,
+            revision: item.file?.revision
+          }))
+        }
+      }
+      
       // Sadece kabul edilmiş tedarikçi checklist düzenleyebilir
       canEditChecklist = supplierStatus.status === 'accepted'
     }

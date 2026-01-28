@@ -344,20 +344,22 @@
 }
 
 .meta-item.deadline.warning {
-  color: #f59e0b; /* Amber/Warning */
-}
-
-.meta-item.deadline.urgent {
-  color: #ef4444; /* Red */
+  color: #f59e0b; /* Sarı - Normal (10+ gün) */
   font-weight: 600;
 }
 
-.meta-item.deadline.overdue {
-  color: #dc2626; /* Dark Red */
+.meta-item.deadline.urgent {
+  color: #ef4444; /* Kırmızı - 10 gün veya daha az */
   font-weight: 700;
-  background: rgba(220, 38, 38, 0.1);
-  padding: 0.25rem 0.5rem;
+}
+
+.meta-item.deadline.overdue {
+  color: #ef4444; /* Kırmızı - Tarih geçti */
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.15); /* Kırmızı arka plan */
+  padding: 0.4rem 0.75rem;
   border-radius: var(--radius-sm);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .meta-item.deadline .days-remaining {

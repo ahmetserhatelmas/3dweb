@@ -22,10 +22,9 @@ export const getUrgencyClass = (dateString) => {
 
   const { days, isOverdue } = result
 
-  if (isOverdue) return 'overdue'
-  if (days <= 7) return 'urgent'
-  if (days <= 30) return 'warning'
-  return '' // Normal
+  if (isOverdue) return 'overdue' // Kırmızı + Arka plan
+  if (days <= 10) return 'urgent' // Kırmızı
+  return 'warning' // Sarı - Normal
 }
 
 export const formatDeadlineInfo = (dateString) => {
@@ -39,22 +38,16 @@ export const formatDeadlineInfo = (dateString) => {
 
   if (isOverdue) {
     daysStr = `${days} gün geçti`
-    urgency = 'overdue'
+    urgency = 'overdue' // Kırmızı + Arka plan
   } else if (days === 0) {
     daysStr = 'Bugün'
-    urgency = 'urgent'
-  } else if (days === 1) {
-    daysStr = 'Yarın'
-    urgency = 'urgent'
-  } else if (days <= 7) {
+    urgency = 'urgent' // Kırmızı
+  } else if (days <= 10) {
     daysStr = `${days} gün kaldı`
-    urgency = 'urgent'
-  } else if (days <= 30) {
-    daysStr = `${days} gün kaldı`
-    urgency = 'warning'
+    urgency = 'urgent' // Kırmızı - 10 gün veya daha az
   } else {
     daysStr = `${days} gün kaldı`
-    urgency = ''
+    urgency = 'warning' // Sarı - Normal
   }
 
   return { daysStr, urgency, days, isOverdue }

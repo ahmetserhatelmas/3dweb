@@ -23,6 +23,20 @@ const getFileIcon = (type) => {
   }
 }
 
+// Helper function to get deadline status
+const getDeadlineStatus = (deadlineDate) => {
+  if (!deadlineDate) return 'normal'
+  
+  const now = new Date()
+  const deadline = new Date(deadlineDate)
+  const diffTime = deadline - now
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  
+  if (diffDays < 0) return 'overdue' // Tarih geçmiş - Kırmızı + Arka plan
+  if (diffDays <= 10) return 'urgent' // 10 gün veya daha az - Kırmızı
+  return 'warning' // Normal - Sarı
+}
+
 export default function ProjectDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -47,6 +61,13 @@ export default function ProjectDetail() {
   const [loadingQuotations, setLoadingQuotations] = useState(false)
   const [processingQuotation, setProcessingQuotation] = useState(null)
   const [deletingProject, setDeletingProject] = useState(false)
+  const [showQuotationDetailsModal, setShowQuotationDetailsModal] = useState(false)
+  const [quotationsPanelExpanded, setQuotationsPanelExpanded] = useState(true)
+  
+  // Customer notes on quotations
+  const [editingCustomerNote, setEditingCustomerNote] = useState(null) // supplier_id being edited
+  const [customerNoteText, setCustomerNoteText] = useState('')
+  const [savingCustomerNote, setSavingCustomerNote] = useState(false)
   
   // Sub-checklist management
   const [expandedItems, setExpandedItems] = useState({})
@@ -184,6 +205,46 @@ export default function ProjectDetail() {
       alert('Bir hata oluştu.')
     } finally {
       setProcessingQuotation(null)
+    }
+  }
+
+  // Customer note functions
+  const handleStartEditCustomerNote = (supplierId, currentNote) => {
+    setEditingCustomerNote(supplierId)
+    setCustomerNoteText(currentNote || '')
+  }
+
+  const handleCancelCustomerNote = () => {
+    setEditingCustomerNote(null)
+    setCustomerNoteText('')
+  }
+
+  const handleSaveCustomerNote = async (supplierId) => {
+    setSavingCustomerNote(true)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/note`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ customer_note: customerNoteText })
+      })
+
+      if (res.ok) {
+        alert('Not kaydedildi.')
+        setEditingCustomerNote(null)
+        setCustomerNoteText('')
+        fetchQuotations()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Not kaydedilemedi.')
+      }
+    } catch (error) {
+      console.error('Save customer note error:', error)
+      alert('Bir hata oluştu.')
+    } finally {
+      setSavingCustomerNote(false)
     }
   }
 
@@ -670,20 +731,38 @@ export default function ProjectDetail() {
               )}
               <span className="meta-item">
                 <Building2 size={16} />
-                {project.supplier_name || (project.suppliers && project.suppliers.length > 0 
-                  ? project.suppliers.map(s => s.company_name).join(', ')
-                  : 'Atanmamış')}
+                {project.project_suppliers && project.project_suppliers.length > 0 ? (
+                  project.status === 'pending' && project.is_quotation ? (
+                    // Bekliyor: Tüm atanan tedarikçileri göster
+                    project.project_suppliers.map(ps => ps.supplier?.company_name || ps.supplier?.username).filter(Boolean).join(', ')
+                  ) : (
+                    // Kabul edildi veya teklif değil: Sadece accepted olanı göster
+                    project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.company_name ||
+                    project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.username ||
+                    project.project_suppliers[0]?.supplier?.company_name ||
+                    project.project_suppliers[0]?.supplier?.username ||
+                    'Atanmamış'
+                  )
+                ) : (project.supplier_name || 'Atanmamış')}
               </span>
               {project.deadline && (
-                <span className="meta-item">
+                <span className={`meta-item deadline-${getDeadlineStatus(project.deadline)}`}>
                   <Calendar size={16} />
-                  {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                  Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                  {(() => {
+                    const status = getDeadlineStatus(project.deadline)
+                    const diffDays = Math.ceil((new Date(project.deadline) - new Date()) / (1000 * 60 * 60 * 24))
+                    
+                    if (status === 'overdue') return ' (GEÇTİ)'
+                    if (status === 'urgent') return ` (${diffDays} gün kaldı)`
+                    return ''
+                  })()}
                 </span>
               )}
               {/* Show accepted quotation price */}
-              {project.suppliers && project.suppliers.length > 0 && (
+              {project.project_suppliers && project.project_suppliers.length > 0 && (
                 (() => {
-                  const acceptedSupplier = project.suppliers.find(s => s.status === 'accepted')
+                  const acceptedSupplier = project.project_suppliers.find(ps => ps.status === 'accepted')
                   if (acceptedSupplier && acceptedSupplier.quoted_price) {
                     return (
                       <span className="meta-item" style={{ color: '#10b981', fontWeight: '600' }}>
@@ -961,100 +1040,176 @@ export default function ProjectDetail() {
           {user.role === 'customer' && project.is_quotation && (
             <div className="quotations-panel">
               <div className="panel-header">
-                <h2>
-                  <Send size={18} />
-                  Gelen Teklifler
-                </h2>
-                <span className="quotation-count">
-                  {quotations.filter(q => q.status === 'quoted').length} teklif
-                </span>
+                <div className="panel-header-left" onClick={() => setQuotationsPanelExpanded(!quotationsPanelExpanded)} style={{ cursor: 'pointer' }}>
+                  {quotationsPanelExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                  <h2>
+                    <Send size={18} />
+                    Gelen Teklifler
+                  </h2>
+                </div>
+                <div className="panel-header-right">
+                  <span className="quotation-count">
+                    {quotations.filter(q => q.status === 'quoted').length} teklif
+                  </span>
+                  <button 
+                    className="btn-view-details" 
+                    onClick={() => setShowQuotationDetailsModal(true)}
+                    title="Detaylı Görünüm"
+                  >
+                    Detaylar
+                  </button>
+                </div>
               </div>
 
-              {loadingQuotations ? (
-                <div className="loading-quotations">
-                  <div className="loading-spinner small"></div>
-                  <span>Teklifler yükleniyor...</span>
-                </div>
-              ) : quotations.length === 0 ? (
-                <div className="no-quotations">
-                  <Clock size={32} />
-                  <p>Henüz teklif gelmedi</p>
-                  <span>Tedarikçiler tekliflerini gönderdiğinde burada görünecek</span>
-                </div>
-              ) : (
-                <>
-                  {quotations.map(q => (
-                    <div key={q.id} className={`quotation-item ${q.status}`}>
-                      <div className="quotation-item-header">
-                        <div className="supplier-info">
-                          <Building2 size={16} />
-                          <span className="supplier-name">{q.supplier?.company_name || q.supplier?.username}</span>
+              {quotationsPanelExpanded && (
+                <div className="quotations-panel-content">
+                {loadingQuotations ? (
+                  <div className="loading-quotations">
+                    <div className="loading-spinner small"></div>
+                    <span>Teklifler yükleniyor...</span>
+                  </div>
+                ) : quotations.length === 0 ? (
+                  <div className="no-quotations">
+                    <Clock size={32} />
+                    <p>Henüz teklif gelmedi</p>
+                    <span>Tedarikçiler tekliflerini gönderdiğinde burada görünecek</span>
+                  </div>
+                ) : (
+                  <div className="quotations-list">
+                    {quotations.map(q => (
+                      <div key={q.id} className={`quotation-item ${q.status}`}>
+                        <div className="quotation-item-header">
+                          <div className="supplier-info">
+                            <Building2 size={16} />
+                            <span className="supplier-name">{q.supplier?.company_name || q.supplier?.username}</span>
+                          </div>
+                          <span className={`quotation-status-badge ${q.status}`}>
+                            {q.status === 'pending' && 'Bekleniyor'}
+                            {q.status === 'quoted' && 'Teklif Geldi'}
+                            {q.status === 'accepted' && 'Kabul Edildi'}
+                            {q.status === 'rejected' && 'Reddedildi'}
+                          </span>
                         </div>
-                        <span className={`quotation-status-badge ${q.status}`}>
-                          {q.status === 'pending' && 'Bekleniyor'}
-                          {q.status === 'quoted' && 'Teklif Geldi'}
-                          {q.status === 'accepted' && 'Kabul Edildi'}
-                          {q.status === 'rejected' && 'Reddedildi'}
-                        </span>
-                      </div>
 
-                      {q.status === 'quoted' && (
-                        <>
-                          <div className="quotation-details">
-                            <div className="quotation-price">
-                              <DollarSign size={18} />
-                              <span className="price-value">₺{Number(q.quoted_price).toLocaleString('tr-TR')}</span>
+                        {q.status === 'quoted' && (
+                          <>
+                            <div className="quotation-details">
+                              <div className="quotation-price-row">
+                                <div className="quotation-price">
+                                  <DollarSign size={18} />
+                                  <span className="price-value">₺{Number(q.quoted_price).toLocaleString('tr-TR')}</span>
+                                </div>
+                                {/* Not Ekle Button - Next to Price */}
+                                {editingCustomerNote !== q.supplier?.id && (
+                                  <button
+                                    className="btn btn-note-add"
+                                    onClick={() => handleStartEditCustomerNote(q.supplier?.id, q.customer_note)}
+                                  >
+                                    <MessageSquare size={14} />
+                                    {q.customer_note ? 'Notu Düzenle' : 'Not Ekle'}
+                                  </button>
+                                )}
+                              </div>
+                              
+                              {q.delivery_date && (
+                                <div className="quotation-delivery">
+                                  <Calendar size={14} />
+                                  <span>Termin: {new Date(q.delivery_date).toLocaleDateString('tr-TR')}</span>
+                                </div>
+                              )}
+                              {q.quoted_note && (
+                                <div className="quotation-note">
+                                  <MessageSquare size={14} />
+                                  <p>{q.quoted_note}</p>
+                                </div>
+                              )}
+                              <span className="quotation-date">
+                                Teklif tarihi: {new Date(q.quoted_at).toLocaleDateString('tr-TR')}
+                              </span>
                             </div>
-                            {q.delivery_date && (
-                              <div className="quotation-delivery">
-                                <Calendar size={14} />
-                                <span>Termin: {new Date(q.delivery_date).toLocaleDateString('tr-TR')}</span>
+
+                            {/* Customer Note Section - Editing or Display */}
+                            {(editingCustomerNote === q.supplier?.id || q.customer_note) && (
+                              <div className="customer-note-section">
+                                {editingCustomerNote === q.supplier?.id ? (
+                                  <div className="note-edit-form">
+                                    <textarea
+                                      className="note-textarea"
+                                      value={customerNoteText}
+                                      onChange={(e) => setCustomerNoteText(e.target.value)}
+                                      placeholder="Tedarikçiye not ekleyin (örn: Fiyat güncelleme talebi)"
+                                      rows={3}
+                                      disabled={savingCustomerNote}
+                                    />
+                                    <div className="note-edit-actions">
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={handleCancelCustomerNote}
+                                        disabled={savingCustomerNote}
+                                      >
+                                        İptal
+                                      </button>
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => handleSaveCustomerNote(q.supplier?.id)}
+                                        disabled={savingCustomerNote || !customerNoteText.trim()}
+                                      >
+                                        {savingCustomerNote ? 'Kaydediliyor...' : 'Kaydet'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : q.customer_note && (
+                                  <div className="customer-note-display">
+                                    <div className="note-header">
+                                      <MessageSquare size={14} />
+                                      <span className="note-label">Notunuz:</span>
+                                    </div>
+                                    <p className="note-text">{q.customer_note}</p>
+                                    {q.customer_note_at && (
+                                      <span className="note-date">
+                                        {new Date(q.customer_note_at).toLocaleDateString('tr-TR')} {new Date(q.customer_note_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
-                            {q.quoted_note && (
-                              <div className="quotation-note">
-                                <MessageSquare size={14} />
-                                <p>{q.quoted_note}</p>
-                              </div>
-                            )}
-                            <span className="quotation-date">
-                              Teklif tarihi: {new Date(q.quoted_at).toLocaleDateString('tr-TR')}
-                            </span>
-                          </div>
 
-                          <div className="quotation-actions">
-                            <button 
-                              className="btn btn-accept"
-                              onClick={() => handleAcceptQuotation(q.supplier?.id)}
-                              disabled={processingQuotation === q.supplier?.id}
-                            >
-                              <CheckCheck size={16} />
-                              {processingQuotation === q.supplier?.id ? 'İşleniyor...' : 'Kabul Et'}
-                            </button>
-                            <button 
-                              className="btn btn-reject"
-                              onClick={() => handleRejectQuotation(q.supplier?.id)}
-                              disabled={processingQuotation === q.supplier?.id}
-                            >
-                              <XCircle size={16} />
-                              Reddet
-                            </button>
-                          </div>
-                        </>
-                      )}
+                            <div className="quotation-actions">
+                              <button 
+                                className="btn btn-accept"
+                                onClick={() => handleAcceptQuotation(q.supplier?.id)}
+                                disabled={processingQuotation === q.supplier?.id}
+                              >
+                                <CheckCheck size={16} />
+                                {processingQuotation === q.supplier?.id ? 'İşleniyor...' : 'Kabul Et'}
+                              </button>
+                              <button 
+                                className="btn btn-reject"
+                                onClick={() => handleRejectQuotation(q.supplier?.id)}
+                                disabled={processingQuotation === q.supplier?.id}
+                              >
+                                <XCircle size={16} />
+                                Reddet
+                              </button>
+                            </div>
+                          </>
+                        )}
 
-                      {q.status === 'pending' && (
-                        <div className="waiting-quote">
-                          <Clock size={16} />
-                          <span>Teklif bekleniyor...</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </>
+                        {q.status === 'pending' && (
+                          <div className="waiting-quote">
+                            <Clock size={16} />
+                            <span>Teklif bekleniyor...</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               )}
 
-              {/* Checklist Preview for Customer */}
+              {/* Checklist Preview for Customer - Always visible */}
               <div className="checklist-preview">
                 <div className="preview-header">
                   <h3>
@@ -1410,6 +1565,138 @@ export default function ProjectDetail() {
           )}
         </div>
       </div>
+
+      {/* Quotation Details Modal */}
+      {showQuotationDetailsModal && (
+        <div className="modal-overlay" onClick={() => setShowQuotationDetailsModal(false)}>
+          <div className="modal-content quotation-details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                <DollarSign size={20} />
+                Teklif Detayları
+              </h2>
+              <button className="modal-close" onClick={() => setShowQuotationDetailsModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {quotations.filter(q => q.status === 'quoted').length === 0 ? (
+                <div className="no-quotations-modal">
+                  <Clock size={32} />
+                  <p>Henüz teklif gelmedi</p>
+                </div>
+              ) : (
+                quotations
+                  .filter(q => q.status === 'quoted')
+                  .map((quotation) => (
+                    <div key={quotation.id} className="supplier-quotation-detail">
+                      <div className="supplier-header">
+                        <div className="supplier-info">
+                          <Building2 size={18} />
+                          <h3>{quotation.supplier?.company_name || quotation.supplier?.username}</h3>
+                        </div>
+                        <div className="supplier-total">
+                          <span className="label">Toplam:</span>
+                          <span className="total-price">₺ {Number(quotation.quotation?.[0]?.total_price || quotation.quoted_price || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+
+                      {quotation.quotation?.[0]?.quotation_items && quotation.quotation[0].quotation_items.length > 0 ? (
+                        <div className="quotation-items-list">
+                          <div className="items-header-row">
+                            <span className="col-item">Kalem</span>
+                            <span className="col-price">Birim Fiyat</span>
+                            <span className="col-qty">Adet</span>
+                            <span className="col-total">Toplam</span>
+                          </div>
+                          
+                          {quotation.quotation[0].quotation_items.map((item, idx) => (
+                            <div key={idx} className="quotation-item-row">
+                              <div className="item-info">
+                                {item.item_type === 'file' ? (
+                                  <>
+                                    <Box size={14} />
+                                    <span className="item-name">{item.file?.file_name || item.title}</span>
+                                    {item.file?.revision && (
+                                      <span className="item-revision">Rev. {item.file.revision}</span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus size={14} />
+                                    <span className="item-name">{item.title}</span>
+                                  </>
+                                )}
+                              </div>
+                              <span className="item-price">₺ {Number(item.price).toFixed(2)}</span>
+                              <span className="item-qty">{item.quantity}</span>
+                              <span className="item-total">₺ {(Number(item.price) * Number(item.quantity)).toFixed(2)}</span>
+                              
+                              {item.notes && (
+                                <div className="item-notes">
+                                  <MessageSquare size={12} />
+                                  {item.notes}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="legacy-quotation">
+                          <p>Eski format teklif - detaylı kaleme ayrılmamış</p>
+                          <div className="quotation-price">
+                            <DollarSign size={16} />
+                            <span>₺ {Number(quotation.quoted_price).toLocaleString('tr-TR')}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {quotation.delivery_date && (
+                        <div className="quotation-delivery-info">
+                          <Calendar size={14} />
+                          <span>Termin: {new Date(quotation.delivery_date).toLocaleDateString('tr-TR')}</span>
+                        </div>
+                      )}
+
+                      {quotation.quoted_note && (
+                        <div className="quotation-general-note">
+                          <MessageSquare size={14} />
+                          <span>{quotation.quoted_note}</span>
+                        </div>
+                      )}
+
+                      <div className="quotation-actions-modal">
+                        <button 
+                          className="btn btn-accept"
+                          onClick={() => {
+                            setShowQuotationDetailsModal(false)
+                            handleAcceptQuotation(quotation.supplier?.id)
+                          }}
+                          disabled={processingQuotation === quotation.supplier?.id}
+                        >
+                          <CheckCheck size={16} />
+                          Kabul Et
+                        </button>
+                        <button 
+                          className="btn btn-reject"
+                          onClick={() => {
+                            setShowQuotationDetailsModal(false)
+                            handleRejectQuotation(quotation.supplier?.id)
+                          }}
+                          disabled={processingQuotation === quotation.supplier?.id}
+                        >
+                          <XCircle size={16} />
+                          Reddet
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
