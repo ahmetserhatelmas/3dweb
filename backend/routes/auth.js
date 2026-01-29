@@ -153,12 +153,6 @@ router.post('/register-public', async (req, res) => {
       return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
     }
 
-    // Get redirect URL from environment or use default
-    // In development, use localhost; in production, use the domain
-    const redirectUrl = process.env.FRONTEND_URL || 
-      (process.env.NODE_ENV === 'production' ? 'https://www.kunye.tech' : 'http://localhost:5173')
-    const confirmUrl = `${redirectUrl}/auth/confirm`
-
     // Get redirect URL for email confirmation
     const redirectUrl = process.env.FRONTEND_URL || 
       (process.env.NODE_ENV === 'production' ? 'https://kunye.tech' : 'http://localhost:5173')
