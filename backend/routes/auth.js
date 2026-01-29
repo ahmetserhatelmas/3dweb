@@ -159,21 +159,48 @@ router.post('/register-public', async (req, res) => {
       (process.env.NODE_ENV === 'production' ? 'https://www.kunye.tech' : 'http://localhost:5173')
     const confirmUrl = `${redirectUrl}/auth/confirm`
 
+    // Get redirect URL for email confirmation
+    const redirectUrl = process.env.FRONTEND_URL || 
+      (process.env.NODE_ENV === 'production' ? 'https://kunye.tech' : 'http://localhost:5173')
+    const confirmUrl = `${redirectUrl}/auth/confirm`
+
     // Create user in Supabase Auth with customer role
     // For local development, skip email confirmation. Set NODE_ENV=production to require email confirmation
     const requireEmailConfirmation = process.env.NODE_ENV === 'production' && process.env.REQUIRE_EMAIL_CONFIRMATION !== 'false'
     
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: !requireEmailConfirmation, // Require email confirmation only in production
-      user_metadata: {
-        username,
-        role: 'customer',
-        company_name: company_name || ''
-      },
-      email_redirect_to: confirmUrl
-    })
+    let data, error
+    
+    if (requireEmailConfirmation) {
+      // Use signUp (not admin.createUser) to trigger email confirmation
+      const signUpResult = await supabaseAdmin.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username,
+            role: 'customer',
+            company_name: company_name || ''
+          },
+          emailRedirectTo: confirmUrl
+        }
+      })
+      data = signUpResult.data
+      error = signUpResult.error
+    } else {
+      // Use admin.createUser for auto-confirmed users
+      const createResult = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          username,
+          role: 'customer',
+          company_name: company_name || ''
+        }
+      })
+      data = createResult.data
+      error = createResult.error
+    }
 
     if (error) {
       console.error('Auth create user error:', error)
