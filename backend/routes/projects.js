@@ -520,7 +520,7 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
     // Check if user is the project creator
     const { data: project, error: projectError } = await freshClient
       .from('projects')
-      .select('created_by, is_quotation')
+      .select('created_by, is_quotation, name, part_number')
       .eq('id', projectId)
       .single()
 
@@ -549,6 +549,35 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
     if (quotation.status !== 'quoted') {
       return res.status(400).json({ error: 'Bu teklif henüz verilmemiş veya zaten işlenmiş.' })
     }
+
+    // Get quotation items for contract
+    const { data: quotationData } = await freshClient
+      .from('quotations')
+      .select(`
+        id,
+        total_price,
+        delivery_date,
+        quotation_items:quotation_items(
+          *,
+          file:project_files(id, file_name, file_type, revision)
+        )
+      `)
+      .eq('project_id', projectId)
+      .eq('supplier_id', supplierId)
+      .maybeSingle()
+
+    // Get customer and supplier info
+    const { data: customer } = await freshClient
+      .from('profiles')
+      .select('username, company_name')
+      .eq('id', req.user.id)
+      .single()
+
+    const { data: supplier } = await freshClient
+      .from('profiles')
+      .select('username, company_name')
+      .eq('id', supplierId)
+      .single()
 
     // Accept this quotation
     const { data: acceptResult, error: acceptError } = await freshClient
@@ -590,7 +619,91 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
       .update(updateData)
       .eq('id', projectId)
 
-    res.json({ message: 'Teklif kabul edildi. Proje tedarikçiye atandı.' })
+    // Generate Contract PDF
+    try {
+      console.log('📄 Starting contract PDF generation...')
+      const { generateContractPDF } = await import('../utils/contractPDF.js')
+      
+      const contractData = {
+        projectId,
+        projectName: project.name,
+        projectPartNumber: project.part_number,
+        customerName: customer.username,
+        customerCompany: customer.company_name,
+        supplierName: supplier.username,
+        supplierCompany: supplier.company_name,
+        quotationItems: quotationData?.quotation_items?.map(item => ({
+          title: item.title || item.file?.file_name,
+          file_name: item.file?.file_name,
+          revision: item.file?.revision,
+          quantity: item.quantity,
+          price: item.price,
+          notes: item.notes
+        })) || [],
+        totalPrice: quotationData?.total_price || quotation.quoted_price,
+        deliveryDate: quotation.delivery_date ? new Date(quotation.delivery_date).toLocaleDateString('tr-TR') : 'Belirtilmemiş',
+        contractDate: new Date().toLocaleDateString('tr-TR')
+      }
+
+      console.log('📄 Contract data prepared:', { 
+        project: contractData.projectName, 
+        customer: contractData.customerCompany,
+        supplier: contractData.supplierCompany,
+        items: contractData.quotationItems.length,
+        total: contractData.totalPrice
+      })
+
+      const pdfBuffer = await generateContractPDF(contractData)
+      console.log('✅ PDF generated, size:', pdfBuffer.length, 'bytes')
+      
+      // Upload PDF to Supabase Storage (project-files bucket)
+      const fileName = `contract_${projectId}_${Date.now()}.pdf`
+      const { error: uploadError } = await freshClient.storage
+        .from('project-files')
+        .upload(fileName, pdfBuffer, {
+          contentType: 'application/pdf',
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('❌ Contract PDF upload error:', uploadError)
+      } else {
+        console.log('✅ PDF uploaded to storage:', fileName)
+        
+        // Get public URL
+        const { data: { publicUrl } } = freshClient.storage
+          .from('project-files')
+          .getPublicUrl(fileName)
+
+        console.log('📎 Public URL:', publicUrl)
+
+        // Save contract to project_files table (proje dosyaları arasında görünsün)
+        const { error: fileError } = await freshClient
+          .from('project_files')
+          .insert({
+            project_id: projectId,
+            file_name: `📄 Sözleşme_${project.name}.pdf`,
+            file_type: 'pdf',
+            file_url: publicUrl,
+            file_path: fileName,
+            description: 'Otomatik oluşturulan sözleşme',
+            is_active: true,
+            order_index: 999 // En sonda görünsün
+          })
+
+        if (fileError) {
+          console.error('❌ Contract file record error:', fileError)
+        } else {
+          console.log('✅ Contract saved to project_files')
+        }
+      }
+    } catch (pdfError) {
+      console.error('❌ Contract PDF generation error:', pdfError)
+      console.error('Stack:', pdfError.stack)
+      // Don't fail the quotation acceptance, just log the error
+    }
+
+    res.json({ message: 'Teklif kabul edildi. Proje tedarikçiye atandı. Sözleşme oluşturuldu.' })
   } catch (error) {
     console.error('Accept quotation error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
@@ -1057,7 +1170,7 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
       // Get STEP checklist templates
       const { data: stepTemplates } = await supabaseAdmin
         .from('step_checklist_templates')
-        .select('name, description, order_index')
+        .select('id, name, description, order_index')
         .eq('is_active', true)
         .order('order_index', { ascending: true })
 
@@ -1065,16 +1178,48 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
         const stepFiles = insertedFiles.filter(f => f.file_type === 'step')
         
         for (const stepFile of stepFiles) {
-          const fileChecklistItems = stepTemplates.map((template, index) => ({
-            project_id: project.id,
-            file_id: stepFile.id,
-            title: template.name,
-            order_index: template.order_index || index + 1,
-            parent_id: null
-          }))
-
-          if (fileChecklistItems.length > 0) {
-            await supabaseAdmin.from('checklist_items').insert(fileChecklistItems)
+          // First, insert parent items (description = 'PARENT')
+          const parentTemplates = stepTemplates.filter(t => t.description === 'PARENT')
+          const parentItems = []
+          
+          for (const template of parentTemplates) {
+            const { data: insertedParent } = await supabaseAdmin
+              .from('checklist_items')
+              .insert({
+                project_id: project.id,
+                file_id: stepFile.id,
+                title: template.name,
+                order_index: template.order_index,
+                parent_id: null
+              })
+              .select()
+              .single()
+            
+            if (insertedParent) {
+              parentItems.push({ templateOrderIndex: template.order_index, parentId: insertedParent.id })
+            }
+          }
+          
+          // Then, insert child items with parent_id
+          const childTemplates = stepTemplates.filter(t => t.description !== 'PARENT')
+          const childItems = []
+          
+          for (const template of childTemplates) {
+            // Find parent by order_index grouping (e.g., 101-103 belong to 100)
+            const parentGroup = Math.floor(template.order_index / 100) * 100
+            const parent = parentItems.find(p => p.templateOrderIndex === parentGroup)
+            
+            childItems.push({
+              project_id: project.id,
+              file_id: stepFile.id,
+              title: template.name,
+              order_index: template.order_index,
+              parent_id: parent ? parent.parentId : null
+            })
+          }
+          
+          if (childItems.length > 0) {
+            await supabaseAdmin.from('checklist_items').insert(childItems)
           }
         }
       }

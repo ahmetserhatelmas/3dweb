@@ -98,6 +98,8 @@ export default function NewProject() {
   const handleFileSelect = (e) => {
     if (e.target.files && e.target.files.length > 0) {
       handleFilesUpload(Array.from(e.target.files))
+      // Reset input so same file can be selected again
+      e.target.value = ''
     }
   }
 
@@ -623,14 +625,13 @@ export default function NewProject() {
                 </div>
 
                 <div className="input-group">
-                  <label>Email *</label>
+                  <label>Email</label>
                   <input
                     type="email"
                     className="input"
                     value={newSupplierForm.email}
                     onChange={(e) => setNewSupplierForm(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="info@firma.com"
-                    required
+                    placeholder="info@firma.com (opsiyonel)"
                   />
                 </div>
 

@@ -767,6 +767,12 @@
 .checklist-items-preview {
   display: flex;
   flex-direction: column;
+  gap: 0.75rem;
+}
+
+.checklist-group-preview {
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
@@ -778,6 +784,26 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   font-size: 0.85rem;
+}
+
+.checklist-item-preview.parent-item {
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border-left: 3px solid var(--primary);
+}
+
+.checklist-children-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-left: 1.5rem;
+}
+
+.checklist-item-preview.child-item {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8rem;
+  opacity: 0.9;
+  background: var(--bg-secondary);
 }
 
 .checklist-item-preview .item-number {

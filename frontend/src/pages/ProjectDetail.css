@@ -182,12 +182,14 @@
   flex-direction: column;
   background: var(--bg-secondary);
   overflow-y: auto;
+  position: relative;
 }
 
 .checklist-panel .panel-header {
   position: sticky;
   top: 0;
   z-index: 10;
+  background: var(--bg-secondary);
 }
 
 .progress-text {
@@ -393,10 +395,17 @@
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--accent-primary);
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 250px);
+  min-height: 500px;
 }
 
 .file-checklist-section .panel-header {
   background: rgba(0, 212, 170, 0.1);
+  z-index: 30;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 .file-checklist-section .panel-header h2 {
@@ -411,6 +420,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  overflow-y: auto;
+  flex: 1;
 }
 
 /* Add Sub-Item Form */

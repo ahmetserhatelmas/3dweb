@@ -313,9 +313,7 @@ export default function ProjectDetail() {
       if (!fileChecklists) return fileChecklists
       const updated = { ...fileChecklists }
       for (const fileId in updated) {
-        updated[fileId] = updated[fileId].map(item => 
-          item.id === itemId ? { ...item, is_checked: checked } : item
-        )
+        updated[fileId] = updateChecklist(updated[fileId])
       }
       return updated
     }
@@ -650,6 +648,17 @@ export default function ProjectDetail() {
   const handleFileClick = (file) => {
     setActiveFile(file)
     setViewMode('viewer')
+    
+    // Auto-expand all parent items for file checklist when viewing a STEP file
+    if (file?.file_type === 'step' && project?.file_checklists?.[file.id]) {
+      const newExpanded = {}
+      project.file_checklists[file.id].forEach(item => {
+        if (item.children && item.children.length > 0) {
+          newExpanded[item.id] = true // Auto-expand all parent items
+        }
+      })
+      setExpandedItems(prev => ({ ...prev, ...newExpanded }))
+    }
   }
 
   // Go back to files list
@@ -1036,8 +1045,8 @@ export default function ProjectDetail() {
         </div>
 
         <div className="checklist-panel">
-          {/* Müşteri için Teklifler Paneli */}
-          {user.role === 'customer' && project.is_quotation && (
+          {/* Müşteri için Teklifler Paneli - sadece STEP viewer modunda DEĞİLSE göster */}
+          {user.role === 'customer' && project.is_quotation && !(viewMode === 'viewer' && activeFile?.file_type === 'step') && (
             <div className="quotations-panel">
               <div className="panel-header">
                 <div className="panel-header-left" onClick={() => setQuotationsPanelExpanded(!quotationsPanelExpanded)} style={{ cursor: 'pointer' }}>
@@ -1246,34 +1255,83 @@ export default function ProjectDetail() {
                   )}
                 </h2>
                 <span className="progress-text">
-                  {project.file_checklists[activeFile.id].filter(i => i.is_checked).length} / {project.file_checklists[activeFile.id].length}
+                  {project.file_checklists[activeFile.id].filter(i => !i.parent_id && i.is_checked).length} / {project.file_checklists[activeFile.id].filter(i => !i.parent_id).length}
                 </span>
               </div>
               <div className="file-checklist-items">
-                {project.file_checklists[activeFile.id].map((item, index) => (
-                  <div key={item.id} className={`checklist-child-item ${item.is_checked ? 'is-checked' : ''}`}>
-                    <label className="checkbox-wrapper">
-                      <input
-                        type="checkbox"
-                        checked={!!item.is_checked}
-                        onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
-                        disabled={
-                          activeFile.status === 'pending' || 
-                          activeFile.is_active === false || 
-                          project.status === 'completed' || 
-                          user.role === 'admin' || 
-                          user.role === 'customer' || 
-                          !project.can_edit_checklist
-                        }
-                      />
-                      <span className="checkbox-custom">
-                        <Check size={12} />
-                      </span>
-                      <span className="checkbox-label">
-                        <span className="item-number">{index + 1}.</span>
-                        {item.title}
-                      </span>
-                    </label>
+                {project.file_checklists[activeFile.id].map((item) => (
+                  <div key={item.id}>
+                    {/* Parent item (ana başlık) */}
+                    <div className={`checklist-item-card ${item.is_checked ? 'is-checked' : ''} ${item.children?.length > 0 ? 'has-children' : ''}`}>
+                      <div className="checklist-item-main">
+                        {/* Expand/Collapse toggle for items with children */}
+                        {item.children?.length > 0 && (
+                          <button 
+                            className="expand-toggle"
+                            onClick={() => toggleExpanded(item.id)}
+                          >
+                            {expandedItems[item.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          </button>
+                        )}
+                        
+                        <label className="checkbox-wrapper">
+                          <input
+                            type="checkbox"
+                            checked={!!item.is_checked}
+                            onChange={(e) => handleChecklistChange(item.id, e.target.checked)}
+                            disabled={
+                              activeFile.status === 'pending' || 
+                              activeFile.is_active === false || 
+                              project.status === 'completed' || 
+                              user.role === 'customer' || 
+                              (user.role === 'user' && !project.can_edit_checklist) || 
+                              (item.children?.length > 0)
+                            }
+                          />
+                          <span className="checkbox-custom">
+                            <Check size={14} />
+                          </span>
+                          <span className="checkbox-label">
+                            {item.title}
+                            {item.children?.length > 0 && (
+                              <span className="children-count">
+                                ({item.children.filter(c => c.is_checked).length}/{item.children.length})
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      </div>
+
+                      {/* Children items (alt başlıklar) */}
+                      {item.children?.length > 0 && expandedItems[item.id] && (
+                        <div className="checklist-children">
+                          {item.children.map((child) => (
+                            <div key={child.id} className={`checklist-child-item ${child.is_checked ? 'is-checked' : ''}`}>
+                              <label className="checkbox-wrapper">
+                                <input
+                                  type="checkbox"
+                                  checked={!!child.is_checked}
+                                  onChange={(e) => handleChecklistChange(child.id, e.target.checked, true, item.id)}
+                                  disabled={
+                                    activeFile.status === 'pending' || 
+                                    activeFile.is_active === false || 
+                                    project.status === 'completed' || 
+                                    user.role === 'customer' || 
+                                    (user.role === 'user' && !project.can_edit_checklist)
+                                  }
+                                />
+                                <span className="checkbox-custom">
+                                  <Check size={12} />
+                                </span>
+                                <span className="checkbox-label">
+                                  {child.title}
+                                </span>
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1281,7 +1339,7 @@ export default function ProjectDetail() {
           )}
 
           {/* Normal Checklist (Teklif kabul edildikten sonra veya admin/user için) */}
-          {!(user.role === 'customer' && project.is_quotation) && (
+          {!(user.role === 'customer' && project.is_quotation) && !(viewMode === 'viewer' && activeFile?.file_type === 'step') && (
             <>
               <div className="panel-header">
                 <h2>Proje Kontrol Listesi</h2>

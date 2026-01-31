@@ -287,8 +287,8 @@ router.post('/register-supplier', authenticateToken, async (req, res) => {
   try {
     const { username, password, company_name, email } = req.body
 
-    if (!username || !password || !email) {
-      return res.status(400).json({ error: 'Kullanıcı adı, şifre ve email gerekli.' })
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli.' })
     }
 
     // Only customers and admins can create suppliers
@@ -296,18 +296,23 @@ router.post('/register-supplier', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Bu işlem için yetki gerekli.' })
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Geçerli bir email adresi giriniz.' })
-    }
+    // If no email provided, generate a placeholder email
+    const finalEmail = email || `${username}@noemail.local`
 
-    // Check if email already exists
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
-    const emailExists = existingUser?.users?.some(u => u.email === email)
-    
-    if (emailExists) {
-      return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+    // Validate email format (if provided)
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Geçerli bir email adresi giriniz.' })
+      }
+
+      // Check if email already exists
+      const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
+      const emailExists = existingUser?.users?.some(u => u.email === email)
+      
+      if (emailExists) {
+        return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
+      }
     }
 
     // Check if username already exists
@@ -323,7 +328,7 @@ router.post('/register-supplier', authenticateToken, async (req, res) => {
 
     // Create user in Supabase Auth with 'user' role (supplier)
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
+      email: finalEmail,
       password,
       email_confirm: true,
       user_metadata: {

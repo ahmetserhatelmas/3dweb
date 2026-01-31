@@ -422,13 +422,31 @@ export default function QuotationDetail() {
                 Teklif kabul edildiğinde bu checklist'i işaretleyebileceksiniz.
               </p>
               <div className="checklist-items-preview">
-                {project.file_checklists[activeFile.id].map((item, index) => (
-                  <div key={item.id} className="checklist-item-preview">
-                    <span className="item-number">{index + 1}.</span>
-                    <span className="item-title">{item.title}</span>
-                    {item.is_checked && <CheckCircle size={14} className="checked-icon" />}
-                  </div>
-                ))}
+                {project.file_checklists[activeFile.id]
+                  .filter(item => !item.parent_id) // Only show parent items
+                  .map((parentItem, index) => {
+                    const children = project.file_checklists[activeFile.id].filter(i => i.parent_id === parentItem.id)
+                    return (
+                      <div key={parentItem.id} className="checklist-group-preview">
+                        <div className="checklist-item-preview parent-item">
+                          <span className="item-number">{index + 1}.</span>
+                          <span className="item-title">{parentItem.title}</span>
+                          {parentItem.is_checked && <CheckCircle size={14} className="checked-icon" />}
+                        </div>
+                        {children.length > 0 && (
+                          <div className="checklist-children-preview">
+                            {children.map((child, childIndex) => (
+                              <div key={child.id} className="checklist-item-preview child-item">
+                                <span className="item-number">{index + 1}.{childIndex + 1}</span>
+                                <span className="item-title">{child.title}</span>
+                                {child.is_checked && <CheckCircle size={14} className="checked-icon" />}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
               </div>
             </div>
           )}
