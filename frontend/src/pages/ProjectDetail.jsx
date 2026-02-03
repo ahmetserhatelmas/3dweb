@@ -986,10 +986,13 @@ export default function ProjectDetail() {
                   file={activeFile}
                   userRole={user.role}
                   project={project}
-                  onRevisionAccepted={() => {
-                    fetchProject()
+                  onRevisionAccepted={async () => {
+                    // Wait a bit for backend to complete all operations
+                    await new Promise(resolve => setTimeout(resolve, 800))
+                    // Refresh project data
+                    await fetchProject()
+                    // Reset active file to show updated file list
                     setActiveFile(null)
-                    setTimeout(() => fetchProject(), 500)
                   }}
                   onRevisionCreated={() => {
                     fetchProject()

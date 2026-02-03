@@ -215,10 +215,6 @@ export default function Quotations() {
                 </div>
 
                 <h3 className="quotation-name">{q.project.name}</h3>
-                
-                {q.project.part_number && (
-                  <p className="quotation-part">Parça No: {q.project.part_number}</p>
-                )}
 
                 <div className="quotation-meta">
                   <div className="meta-item">

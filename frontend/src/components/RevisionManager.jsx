@@ -124,6 +124,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
 
       let uploadedFileUrl = null
       let uploadedFilePath = null
+      let uploadedFileName = null
 
       // Upload file if geometry revision or both
       if ((revisionType === 'geometry' || revisionType === 'both') && newFile) {
@@ -132,6 +133,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
         console.log('Upload result:', uploadResult)
         uploadedFileUrl = uploadResult.url
         uploadedFilePath = uploadResult.path
+        uploadedFileName = uploadResult.file_name || newFile.name // Use server response or original name
       }
 
       // Create revision request
@@ -140,7 +142,8 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
         description,
         ...((revisionType === 'geometry' || revisionType === 'both') && {
           new_file_url: uploadedFileUrl,
-          new_file_path: uploadedFilePath
+          new_file_path: uploadedFilePath,
+          new_file_name: uploadedFileName
         }),
         ...((revisionType === 'quantity' || revisionType === 'both') && {
           new_quantity: parseInt(newQuantity),
@@ -181,8 +184,14 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       setLoading(true)
       await api.acceptRevisionRequest(requestId)
       alert('Revizyon kabul edildi ve uygulandı.')
-      loadRevisionRequests()
-      if (onRevisionAccepted) onRevisionAccepted()
+      
+      // Reload revision requests first
+      await loadRevisionRequests()
+      
+      // Then notify parent to refresh entire project
+      if (onRevisionAccepted) {
+        onRevisionAccepted()
+      }
     } catch (error) {
       console.error('Accept revision error:', error)
       alert(error.message || 'Revizyon kabul edilemedi.')
@@ -406,12 +415,12 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
                       <h5>Revizyon Teklifi</h5>
                       <div className="form-row">
                         <div className="form-group">
-                          <label>Fiyat (₺) *</label>
+                          <label>Birim Fiyat (₺) *</label>
                           <input
                             type="number"
                             value={quotedPrice}
                             onChange={(e) => setQuotedPrice(e.target.value)}
-                            placeholder="Örn: 1200"
+                            placeholder="Örn: 100"
                             min="0"
                             step="0.01"
                           />
@@ -426,6 +435,16 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
                           />
                         </div>
                       </div>
+                      {/* Price calculation display */}
+                      {quotedPrice && request.new_quantity && (
+                        <div className="price-calculation">
+                          <span className="calc-unit">{parseFloat(quotedPrice).toLocaleString('tr-TR')} ₺</span>
+                          <span className="calc-operator">×</span>
+                          <span className="calc-quantity">{request.new_quantity} adet</span>
+                          <span className="calc-operator">=</span>
+                          <span className="calc-total">{(parseFloat(quotedPrice) * request.new_quantity).toLocaleString('tr-TR')} ₺</span>
+                        </div>
+                      )}
                       <div className="form-group">
                         <label>Not</label>
                         <textarea
@@ -522,9 +541,20 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
                 <div className="supplier-quotation">
                   <h5>Tedarikçi Teklifi:</h5>
                   <div className="quotation-details">
-                    <div className="quotation-item">
-                      <strong>Fiyat:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺
-                    </div>
+                    {request.new_quantity ? (
+                      <>
+                        <div className="quotation-item">
+                          <strong>Birim Fiyat:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺
+                        </div>
+                        <div className="quotation-item price-total">
+                          <strong>Toplam:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺ × {request.new_quantity} = <span className="total-amount">{(request.supplier_quoted_price * request.new_quantity).toLocaleString('tr-TR')}₺</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="quotation-item">
+                        <strong>Fiyat:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺
+                      </div>
+                    )}
                     <div className="quotation-item">
                       <strong>Termin:</strong> {new Date(request.supplier_quoted_deadline).toLocaleDateString('tr-TR')}
                     </div>
@@ -570,19 +600,19 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       )}
 
       {/* Completed Requests */}
-      {revisionRequests.filter(r => r.status !== 'pending').length > 0 && (
+      {revisionRequests.filter(r => r.status !== 'pending' && r.status !== 'awaiting_customer_approval').length > 0 && (
         <div className="completed-requests">
           <div 
             className="completed-requests-header"
             onClick={() => setShowCompletedRequests(!showCompletedRequests)}
           >
-            <h4>Tamamlanan Talepler ({revisionRequests.filter(r => r.status !== 'pending').length})</h4>
+            <h4>Tamamlanan Talepler ({revisionRequests.filter(r => r.status !== 'pending' && r.status !== 'awaiting_customer_approval').length})</h4>
             {showCompletedRequests ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </div>
           
           {showCompletedRequests && (
             <div className="completed-requests-list">
-              {revisionRequests.filter(r => r.status !== 'pending').map(request => (
+              {revisionRequests.filter(r => r.status !== 'pending' && r.status !== 'awaiting_customer_approval').map(request => (
                 <div key={request.id} className={`revision-request ${request.status}`}>
               <div className="request-header">
                 {getStatusIcon(request.status)}
@@ -603,9 +633,15 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
                      request.supplier_quoted_price && (
                       <div className="supplier-quotation compact">
                         <div className="quotation-details">
-                          <div className="quotation-item">
-                            <strong>Fiyat:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺
-                          </div>
+                          {request.new_quantity ? (
+                            <div className="quotation-item price-total">
+                              <strong>Toplam:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺ × {request.new_quantity} = <span className="total-amount">{(request.supplier_quoted_price * request.new_quantity).toLocaleString('tr-TR')}₺</span>
+                            </div>
+                          ) : (
+                            <div className="quotation-item">
+                              <strong>Fiyat:</strong> {request.supplier_quoted_price?.toLocaleString('tr-TR')}₺
+                            </div>
+                          )}
                           <div className="quotation-item">
                             <strong>Termin:</strong> {new Date(request.supplier_quoted_deadline).toLocaleDateString('tr-TR')}
                           </div>

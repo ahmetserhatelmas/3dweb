@@ -91,14 +91,14 @@ router.post('/step/:projectId', authenticateToken, uploadStep.single('file'), as
       .from('projects')
       .update({
         step_file_path: filePath,
-        step_file_name: req.file.originalname
+        step_file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8')
       })
       .eq('id', req.params.projectId)
 
     res.json({
       message: 'STEP dosyası başarıyla yüklendi.',
       file_path: filePath,
-      file_name: req.file.originalname
+      file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8')
     })
   } catch (error) {
     console.error('Upload STEP error:', error)
@@ -140,7 +140,7 @@ router.post('/document/:projectId', authenticateToken, uploadDocument.single('fi
         project_id: req.params.projectId,
         checklist_item_id: checklist_item_id || null,
         file_path: filePath,
-        file_name: req.file.originalname,
+        file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8'),
         file_size: req.file.size,
         mime_type: req.file.mimetype,
         uploaded_by: req.user.id
@@ -154,7 +154,7 @@ router.post('/document/:projectId', authenticateToken, uploadDocument.single('fi
       id: data.id,
       message: 'Dosya başarıyla yüklendi.',
       file_path: filePath,
-      file_name: req.file.originalname
+      file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8')
     })
   } catch (error) {
     console.error('Upload document error:', error)
@@ -208,7 +208,7 @@ router.post('/project-files', authenticateToken, uploadProjectFiles.array('files
       uploadedFiles.push({
         temp_path: fileName,
         file_url: signedUrlData?.signedUrl,
-        file_name: file.originalname,
+        file_name: Buffer.from(file.originalname, 'latin1').toString('utf8'),
         file_type: fileType,
         file_size: file.size,
         mime_type: file.mimetype
@@ -277,7 +277,7 @@ router.post('/', authenticateToken, uploadProjectFiles.single('file'), async (re
       message: 'Dosya başarıyla yüklendi.',
       url: fileUrl,
       path: fileName,
-      file_name: req.file.originalname
+      file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8')
     })
   } catch (error) {
     console.error('General upload error:', error)

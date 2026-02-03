@@ -1,6 +1,7 @@
 import express from 'express'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken, requireAdminOrCustomer } from '../middleware/supabaseAuth.js'
+import { generateContractPDF } from '../utils/contractPDF.js'
 
 const router = express.Router()
 
@@ -89,12 +90,13 @@ router.get('/projects/:projectId/revision-requests', authenticateToken, async (r
 router.post('/projects/:projectId/files/:fileId/revise', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
     const { projectId, fileId } = req.params
-    const { revision_type, description, new_quantity, affect_scope, new_file_url, new_file_path } = req.body
+    const { revision_type, description, new_quantity, affect_scope, new_file_url, new_file_path, new_file_name } = req.body
 
     console.log('Create revision request:', { 
       projectId, 
       fileId, 
       revision_type, 
+      new_file_name,
       userId: req.user.id,
       body: req.body 
     })
@@ -158,11 +160,16 @@ router.post('/projects/:projectId/files/:fileId/revise', authenticateToken, requ
     if (revision_type === 'geometry' || revision_type === 'both') {
       requestData.new_file_url = new_file_url
       requestData.new_file_path = new_file_path
+      requestData.new_file_name = new_file_name // Store original file name
+      
+      // Use the original file name passed from frontend, or extract from path
+      let newFileName = new_file_name || currentFile.file_name
+      console.log('📁 [PENDING] Using file name:', newFileName, '(from request:', !!new_file_name, ')')
       
       // Create a pending revision file immediately for preview
       const pendingFileData = {
         project_id: projectId,
-        file_name: currentFile.file_name,
+        file_name: newFileName,
         file_type: currentFile.file_type,
         quantity: revision_type === 'both' ? new_quantity : currentFile.quantity,
         revision: nextRev,
@@ -433,9 +440,36 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
       // 2. Create new file entry
       const oldFile = oldActiveFile // Use the fetched file, not request.file
       
+      // Get the file name from:
+      // 1. Stored new_file_name in request (if available)
+      // 2. Pending file (if exists)
+      // 3. Fall back to old file name
+      let newFileName = oldFile.file_name // Default to old name
+      
+      // First try: use stored new_file_name from revision request
+      if (request.new_file_name) {
+        newFileName = request.new_file_name
+        console.log('📁 Using stored file name from request:', newFileName)
+      }
+      // Second try: get from pending file if it exists
+      else if (request.pending_file_id) {
+        const { data: pendingFile } = await supabaseAdmin
+          .from('project_files')
+          .select('file_name')
+          .eq('id', request.pending_file_id)
+          .single()
+        
+        if (pendingFile?.file_name) {
+          newFileName = pendingFile.file_name
+          console.log('📁 Using file name from pending file:', newFileName)
+        }
+      }
+      
+      console.log('📁 Final new file name:', newFileName)
+      
       const newFileData = {
         project_id: oldFile.project_id,
-        file_name: oldFile.file_name,
+        file_name: newFileName,
         file_type: oldFile.file_type,
         quantity: request.revision_type === 'both' ? request.new_quantity : oldFile.quantity, // Use new quantity if 'both'
         revision: request.to_revision,
@@ -445,6 +479,8 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
         is_active: true,
         status: 'active'
       }
+      
+      console.log('📁 New file data:', { file_name: newFileData.file_name, revision: newFileData.revision })
 
       let newFile = null // Changed from const to let
       const { data: newFileData_result, error: newFileError } = await supabaseAdmin
@@ -487,32 +523,67 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
         newFile = newFileData_result
       }
 
-      // 3. Copy checklist items to new file (with reset)
+      // 3. Copy checklist items to new file (with reset) - maintaining parent-child hierarchy
       const { data: oldChecklistItems } = await supabaseAdmin
         .from('checklist_items')
         .select('*')
         .eq('file_id', request.file_id)
+        .order('order_index', { ascending: true })
 
       if (oldChecklistItems && oldChecklistItems.length > 0) {
-        // If old file has checklist items, copy them (reset)
-        const newChecklistItems = oldChecklistItems.map(item => ({
-          project_id: item.project_id,
-          file_id: newFile.id,
-          title: item.title || item.step_description,
-          order_index: item.order_index,
-          parent_id: item.parent_id || null,
-          is_checked: false,
-          checked_at: null,
-          supplier_notes: null,
-          supplier_notes_at: null
-        }))
-
-        await supabaseAdmin
-          .from('checklist_items')
-          .insert(newChecklistItems)
+        console.log('Copying checklist items from old file with hierarchy...')
+        
+        // Map old parent IDs to new parent IDs
+        const oldToNewIdMap = {}
+        
+        // First, insert PARENT items (items without parent_id)
+        const parentItems = oldChecklistItems.filter(item => !item.parent_id)
+        for (const item of parentItems) {
+          const { data: newItem } = await supabaseAdmin
+            .from('checklist_items')
+            .insert({
+              project_id: item.project_id,
+              file_id: newFile.id,
+              title: item.title || item.step_description,
+              order_index: item.order_index,
+              parent_id: null,
+              is_checked: false,
+              checked_at: null,
+              supplier_notes: null,
+              supplier_notes_at: null
+            })
+            .select()
+            .single()
+          
+          if (newItem) {
+            oldToNewIdMap[item.id] = newItem.id
+          }
+        }
+        
+        // Then, insert CHILD items with mapped parent_id
+        const childItems = oldChecklistItems.filter(item => item.parent_id)
+        if (childItems.length > 0) {
+          const newChildItems = childItems.map(item => ({
+            project_id: item.project_id,
+            file_id: newFile.id,
+            title: item.title || item.step_description,
+            order_index: item.order_index,
+            parent_id: oldToNewIdMap[item.parent_id] || null,
+            is_checked: false,
+            checked_at: null,
+            supplier_notes: null,
+            supplier_notes_at: null
+          }))
+          
+          await supabaseAdmin
+            .from('checklist_items')
+            .insert(newChildItems)
+        }
+        
+        console.log(`Copied ${parentItems.length} parent and ${childItems.length} child checklist items`)
       } else {
-        // If old file has NO checklist items, add default STEP checklist
-        console.log('No checklist found on old file, adding default STEP checklist...')
+        // If old file has NO checklist items, add default STEP checklist WITH HIERARCHY
+        console.log('No checklist found on old file, adding default STEP checklist with hierarchy...')
         
         const { data: stepTemplates } = await supabaseAdmin
           .from('step_checklist_templates')
@@ -521,19 +592,51 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
           .order('order_index', { ascending: true })
 
         if (stepTemplates && stepTemplates.length > 0) {
-          const fileChecklistItems = stepTemplates.map((template, index) => ({
-            project_id: request.project_id,
-            file_id: newFile.id,
-            title: template.name,
-            order_index: template.order_index || index + 1,
-            parent_id: null
-          }))
-
-          await supabaseAdmin
-            .from('checklist_items')
-            .insert(fileChecklistItems)
+          // First, insert parent items (description = 'PARENT')
+          const parentTemplates = stepTemplates.filter(t => t.description === 'PARENT')
+          const parentItems = []
           
-          console.log(`Added ${fileChecklistItems.length} default checklist items to new file`)
+          for (const template of parentTemplates) {
+            const { data: insertedParent } = await supabaseAdmin
+              .from('checklist_items')
+              .insert({
+                project_id: request.project_id,
+                file_id: newFile.id,
+                title: template.name,
+                order_index: template.order_index,
+                parent_id: null
+              })
+              .select()
+              .single()
+            
+            if (insertedParent) {
+              parentItems.push({ templateOrderIndex: template.order_index, parentId: insertedParent.id })
+            }
+          }
+          
+          // Then, insert child items with parent_id
+          const childTemplates = stepTemplates.filter(t => t.description !== 'PARENT')
+          const childChecklistItems = []
+          
+          for (const template of childTemplates) {
+            // Find parent by order_index grouping (e.g., 101-103 belong to 100)
+            const parentGroup = Math.floor(template.order_index / 100) * 100
+            const parent = parentItems.find(p => p.templateOrderIndex === parentGroup)
+            
+            childChecklistItems.push({
+              project_id: request.project_id,
+              file_id: newFile.id,
+              title: template.name,
+              order_index: template.order_index,
+              parent_id: parent ? parent.parentId : null
+            })
+          }
+          
+          if (childChecklistItems.length > 0) {
+            await supabaseAdmin.from('checklist_items').insert(childChecklistItems)
+          }
+          
+          console.log(`Added ${parentItems.length} parent and ${childChecklistItems.length} child checklist items to new file`)
         }
       }
 
@@ -803,13 +906,281 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
     // 6. Update project revision if needed
     await updateProjectRevision(request.project_id)
 
-    // 7. Update project price and deadline (if supplier provided)
-    if (request.supplier_quoted_price && request.supplier_quoted_deadline) {
-      await supabaseAdmin.rpc('update_project_price_and_deadline', {
-        p_project_id: request.project_id,
-        p_quoted_price: request.supplier_quoted_price,
-        p_deadline: request.supplier_quoted_deadline
+    // 7. Update quotation item price (not entire project price)
+    console.log('=== STEP 7: Update quotation item price ===')
+    console.log('Request details:', JSON.stringify({
+      file_id: request.file_id,
+      supplier_quoted_price: request.supplier_quoted_price,
+      revision_type: request.revision_type
+    }, null, 2))
+    
+    if (request.supplier_quoted_price) {
+      console.log('[PRICE UPDATE] Updating quotation item price for file:', request.file_id)
+      
+      // Get current file details to find file_name
+      const { data: currentFile } = await supabaseAdmin
+        .from('project_files')
+        .select('file_name, id')
+        .eq('id', request.file_id)
+        .single()
+      
+      if (!currentFile) {
+        console.error('❌ File not found:', request.file_id)
+        return
+      }
+      
+      console.log('[FILE LOOKUP] Found file:', currentFile.file_name)
+      
+      // Get ALL project files with this name (all revisions)
+      const { data: allFileRevisions } = await supabaseAdmin
+        .from('project_files')
+        .select('id, revision, is_active')
+        .eq('project_id', request.project_id)
+        .eq('file_name', currentFile.file_name)
+        .order('created_at', { ascending: false })
+      
+      console.log('[FILE REVISIONS]', JSON.stringify(allFileRevisions, null, 2))
+      
+      // Get the root file (original) - it should have quotation item
+      const rootFile = allFileRevisions?.find(f => !f.parent_file_id) || allFileRevisions?.[allFileRevisions.length - 1]
+      
+      // Try to find quotation item by searching through all revisions of this file
+      let quotationItem = null
+      let matchedFileId = null
+      
+      for (const fileRev of allFileRevisions || []) {
+        const { data: item } = await supabaseAdmin
+          .from('quotation_items')
+          .select('id, price, quantity, file_id')
+          .eq('file_id', fileRev.id)
+          .maybeSingle()
+        
+        if (item) {
+          quotationItem = item
+          matchedFileId = fileRev.id
+          console.log('[QUOTATION ITEM] Found for file_id:', fileRev.id, 'revision:', fileRev.revision)
+          break
+        }
+      }
+      
+      if (!quotationItem) {
+        console.error('❌ Quotation item not found for any revision of file:', currentFile.file_name)
+        console.error('Searched file IDs:', allFileRevisions?.map(f => f.id))
+        return
+      }
+      
+      console.log('[QUOTATION ITEM] Found:', quotationItem)
+      
+      // Calculate price based on new quantity if revision type includes quantity change
+      let oldQuantity = quotationItem.quantity
+      let newQuantity = quotationItem.quantity
+      
+      // If quantity changed (both or quantity revision), get new quantity from file
+      if (request.revision_type === 'quantity' || request.revision_type === 'both') {
+        const { data: updatedFile } = await supabaseAdmin
+          .from('project_files')
+          .select('quantity')
+          .eq('id', request.file_id)
+          .single()
+        
+        if (updatedFile) {
+          newQuantity = updatedFile.quantity
+          console.log('📦 Quantity changed from', oldQuantity, 'to', newQuantity)
+        }
+      }
+      
+      // If geometry changed with 'both' type, get new file's quantity
+      if (request.revision_type === 'both') {
+        const { data: newFile } = await supabaseAdmin
+          .from('project_files')
+          .select('id, quantity')
+          .eq('project_id', request.project_id)
+          .eq('revision', request.to_revision)
+          .eq('is_active', true)
+          .eq('parent_file_id', request.file_id)
+          .single()
+        
+        if (newFile) {
+          newQuantity = newFile.quantity
+          console.log('📦 New file quantity:', newQuantity)
+        }
+      }
+      
+      const oldItemTotal = Number(quotationItem.price) * Number(oldQuantity)
+      const newItemTotal = Number(request.supplier_quoted_price) * Number(newQuantity)
+      const priceDifference = newItemTotal - oldItemTotal
+      
+      console.log('💰 Price calculation:', {
+        oldPrice: quotationItem.price,
+        newPrice: request.supplier_quoted_price,
+        oldQuantity,
+        newQuantity,
+        oldTotal: oldItemTotal,
+        newTotal: newItemTotal,
+        difference: priceDifference
       })
+      
+      // Update the quotation item price, quantity (and file_id if geometry changed)
+      const updateData = {
+        price: request.supplier_quoted_price,
+        quantity: newQuantity
+      }
+      
+      // If geometry changed, update file_id to point to new file
+      if (request.revision_type === 'geometry' || request.revision_type === 'both') {
+        // Get the new file ID
+        const { data: newFile } = await supabaseAdmin
+          .from('project_files')
+          .select('id')
+          .eq('project_id', request.project_id)
+          .eq('revision', request.to_revision)
+          .eq('is_active', true)
+          .eq('parent_file_id', request.file_id)
+          .single()
+        
+        if (newFile) {
+          updateData.file_id = newFile.id
+          console.log('📝 Updating quotation item file_id to new revision:', newFile.id)
+        }
+      }
+      
+      // Update quotation item - use direct update without .single() to avoid RLS issues
+      console.log('[UPDATE] Attempting to update quotation_items with:', JSON.stringify(updateData, null, 2))
+      console.log('[UPDATE] Where id =', quotationItem.id)
+      
+      const { error: updateQIError, count: updateCount } = await supabaseAdmin
+        .from('quotation_items')
+        .update(updateData)
+        .eq('id', quotationItem.id)
+      
+      if (updateQIError) {
+        console.error('❌ Error updating quotation item:', updateQIError)
+        
+        // Fallback: Try RPC function
+        console.log('[UPDATE] Trying RPC fallback...')
+        const { error: rpcError } = await supabaseAdmin.rpc('update_quotation_item_price', {
+          p_item_id: quotationItem.id,
+          p_price: updateData.price,
+          p_quantity: updateData.quantity,
+          p_file_id: updateData.file_id || quotationItem.file_id
+        })
+        
+        if (rpcError && rpcError.code !== 'PGRST202') {
+          console.error('❌ RPC also failed:', rpcError)
+        } else if (!rpcError) {
+          console.log('✅ Quotation item updated via RPC')
+        }
+      } else {
+        console.log('✅ Quotation item update query executed')
+      }
+      
+      // Verify the update worked
+      const { data: verifyQI } = await supabaseAdmin
+        .from('quotation_items')
+        .select('id, file_id, price, quantity')
+        .eq('id', quotationItem.id)
+        .single()
+      
+      if (verifyQI) {
+        console.log('✅ Quotation item after update:', JSON.stringify(verifyQI, null, 2))
+        if (verifyQI.price !== updateData.price) {
+          console.error('❌ WARNING: Price was NOT updated! Expected:', updateData.price, 'Got:', verifyQI.price)
+          
+          // Try direct SQL update as last resort
+          console.log('[UPDATE] Trying direct SQL update...')
+          const { error: sqlError } = await supabaseAdmin.rpc('exec_sql', {
+            sql_query: `UPDATE quotation_items SET price = ${updateData.price}, quantity = ${updateData.quantity}${updateData.file_id ? `, file_id = '${updateData.file_id}'` : ''} WHERE id = '${quotationItem.id}'`
+          })
+          
+          if (sqlError && sqlError.code !== 'PGRST202') {
+            console.error('❌ Direct SQL also failed:', sqlError)
+          }
+        }
+      } else {
+        console.error('❌ Could not verify quotation item update')
+      }
+      
+      // Update quotation total price (sum of all items)
+      console.log('[QUOTATION PRICE] Recalculating quotation total...')
+      
+      // Get quotation for this project and supplier
+      const { data: projectData } = await supabaseAdmin
+        .from('projects')
+        .select('assigned_to')
+        .eq('id', request.project_id)
+        .single()
+      
+      if (projectData?.assigned_to) {
+        // Get the quotation from quotations table (not project_suppliers!)
+        const { data: quotationData, error: quotationError } = await supabaseAdmin
+          .from('quotations')
+          .select('id')
+          .eq('project_id', request.project_id)
+          .eq('supplier_id', projectData.assigned_to)
+          .single()
+        
+        console.log('[PRICE UPDATE] Quotation lookup (from quotations table):', { 
+          project_id: request.project_id, 
+          supplier_id: projectData.assigned_to,
+          quotationData,
+          quotationError
+        })
+        
+        if (quotationData) {
+          // Get all quotation items and calculate new total (including extra items)
+          const { data: allItems, error: itemsError } = await supabaseAdmin
+            .from('quotation_items')
+            .select('price, quantity, title, item_type, file_id')
+            .eq('quotation_id', quotationData.id)
+          
+          console.log('[PRICE UPDATE] Quotation items query:', { 
+            quotation_id: quotationData.id,
+            itemsCount: allItems?.length,
+            itemsError,
+            items: allItems
+          })
+          
+          if (itemsError) {
+            console.error('❌ Error fetching quotation items for total:', itemsError)
+          }
+          
+          if (allItems && allItems.length > 0) {
+            console.log('💰 Calculating total from items:', JSON.stringify(allItems, null, 2))
+            
+            const newTotal = allItems.reduce((sum, item) => {
+              const itemTotal = Number(item.price || 0) * Number(item.quantity || 1)
+              console.log(`  - Item: ${item.title || item.file_id || 'unknown'}, price: ${item.price}, qty: ${item.quantity}, subtotal: ${itemTotal}`)
+              return sum + itemTotal
+            }, 0)
+            
+            console.log('💰 New quotation total:', newTotal)
+            
+            // Update project_suppliers.quoted_price (not quotations table!)
+            const { error: updateError } = await supabaseAdmin
+              .from('project_suppliers')
+              .update({ quoted_price: newTotal })
+              .eq('project_id', request.project_id)
+              .eq('supplier_id', projectData.assigned_to)
+            
+            if (updateError) {
+              console.error('❌ Error updating quoted_price:', updateError)
+            } else {
+              console.log('✅ Quotation total updated to:', newTotal)
+            }
+          } else {
+            console.log('⚠️ No quotation items found for total calculation')
+          }
+        }
+      }
+      
+      // Update project deadline if supplier provided one
+      if (request.supplier_quoted_deadline) {
+        await supabaseAdmin
+          .from('projects')
+          .update({ deadline: request.supplier_quoted_deadline })
+          .eq('id', request.project_id)
+        console.log('✅ Project deadline updated')
+      }
     }
 
     // 8. Update request status (do this LAST after everything succeeds)
@@ -822,6 +1193,301 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
       })
       .eq('id', requestId)
 
+    // 9. Generate new contract PDF for the updated revision
+    console.log('📄 Generating new contract PDF for revision:', request.to_revision)
+    
+    try {
+      // Wait for quotation item updates to propagate (increased from 300ms to 1000ms)
+      console.log('⏱️ Waiting 1 second for database updates to propagate...')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Get project details
+      const { data: project } = await supabaseAdmin
+        .from('projects')
+        .select(`
+          *,
+          creator:profiles!projects_created_by_fkey(username, company_name),
+          supplier:profiles!projects_assigned_to_fkey(username, company_name)
+        `)
+        .eq('id', request.project_id)
+        .single()
+
+      if (!project) {
+        console.error('❌ Project not found for contract generation')
+      } else {
+        console.log('✅ Project found for contract:', { 
+          id: project.id, 
+          name: project.name,
+          assigned_to: project.assigned_to 
+        })
+        
+        // Get quotation
+        const { data: quotation, error: quotationError } = await supabaseAdmin
+          .from('quotations')
+          .select('*')
+          .eq('project_id', request.project_id)
+          .eq('supplier_id', project.assigned_to)
+          .single()
+
+        if (quotationError) {
+          console.error('❌ Quotation fetch error:', quotationError)
+        }
+
+        if (!quotation) {
+          console.error('❌ Quotation not found for contract generation', {
+            project_id: request.project_id,
+            supplier_id: project.assigned_to
+          })
+        } else {
+          // NEW APPROACH: Get ACTIVE step files first, then find their prices from quotation_items
+          console.log('📋 [CONTRACT] Getting active step files for project:', request.project_id)
+          
+          // 1. Get all ACTIVE step files (not PDF contracts)
+          const { data: activeStepFiles, error: filesError } = await supabaseAdmin
+            .from('project_files')
+            .select('id, file_name, revision, quantity, parent_file_id')
+            .eq('project_id', request.project_id)
+            .eq('is_active', true)
+            .neq('file_type', 'pdf')
+            .order('created_at', { ascending: true })
+          
+          if (filesError) {
+            console.error('❌ Error fetching active files:', filesError)
+          }
+          
+          console.log('📋 [CONTRACT] Active step files:', JSON.stringify(activeStepFiles, null, 2))
+          
+          // 2. Get ALL quotation items for this quotation (including extra items)
+          const { data: allQuotationItems, error: qiError } = await supabaseAdmin
+            .from('quotation_items')
+            .select('id, file_id, price, quantity, title, item_type')
+            .eq('quotation_id', quotation.id)
+          
+          if (qiError) {
+            console.error('❌ Error fetching quotation items:', qiError)
+          }
+          
+          console.log('📋 [CONTRACT] All quotation items:', JSON.stringify(allQuotationItems, null, 2))
+          
+          // 3. Build formatted items by matching active files with quotation items
+          // For each active file, find its quotation item (by file_id or by tracing parent chain)
+          const formattedItems = []
+          
+          for (const activeFile of (activeStepFiles || [])) {
+            console.log(`📋 [CONTRACT] Processing active file: ${activeFile.file_name} (Rev ${activeFile.revision})`)
+            
+            // First, try direct match by file_id
+            let matchingItem = (allQuotationItems || []).find(qi => qi.file_id === activeFile.id)
+            
+            // If no direct match, trace parent chain to find the original file's quotation item
+            if (!matchingItem && activeFile.parent_file_id) {
+              console.log(`📋 [CONTRACT] No direct match, tracing parent chain for file ${activeFile.id}`)
+              
+              let currentParentId = activeFile.parent_file_id
+              let parentChainDepth = 0
+              const maxDepth = 26 // Max revisions A-Z
+              
+              while (currentParentId && parentChainDepth < maxDepth) {
+                // Check if this parent has a quotation item
+                matchingItem = (allQuotationItems || []).find(qi => qi.file_id === currentParentId)
+                
+                if (matchingItem) {
+                  console.log(`📋 [CONTRACT] Found quotation item via parent chain at depth ${parentChainDepth + 1}, file_id: ${currentParentId}`)
+                  break
+                }
+                
+                // Get the parent's parent
+                const { data: parentFile } = await supabaseAdmin
+                  .from('project_files')
+                  .select('parent_file_id')
+                  .eq('id', currentParentId)
+                  .single()
+                
+                currentParentId = parentFile?.parent_file_id
+                parentChainDepth++
+              }
+            }
+            
+            if (matchingItem) {
+              const formattedItem = {
+                title: `${activeFile.file_name} (Rev. ${activeFile.revision})`,
+                file_name: activeFile.file_name,
+                quantity: activeFile.quantity || matchingItem.quantity || 1,
+                price: matchingItem.price || 0,
+                total: Number(matchingItem.price || 0) * Number(activeFile.quantity || matchingItem.quantity || 1)
+              }
+              formattedItems.push(formattedItem)
+              console.log(`✅ [CONTRACT] Added item: ${formattedItem.title}, qty: ${formattedItem.quantity}, price: ${formattedItem.price}, total: ${formattedItem.total}`)
+            } else {
+              console.log(`⚠️ [CONTRACT] No quotation item found for file: ${activeFile.file_name}`)
+            }
+          }
+          
+          // 4. Add EXTRA items (non-file items like additional labor, services, etc.)
+          const extraItems = (allQuotationItems || []).filter(qi => 
+            qi.item_type === 'extra' || (!qi.file_id && qi.title)
+          )
+          
+          console.log('📋 [CONTRACT] Extra items found:', extraItems.length)
+          
+          for (const extraItem of extraItems) {
+            const formattedExtraItem = {
+              title: extraItem.title || 'Ek Kalem',
+              file_name: extraItem.title || 'Ek Kalem',
+              quantity: extraItem.quantity || 1,
+              price: extraItem.price || 0,
+              total: Number(extraItem.price || 0) * Number(extraItem.quantity || 1)
+            }
+            formattedItems.push(formattedExtraItem)
+            console.log(`✅ [CONTRACT] Added extra item: ${formattedExtraItem.title}, qty: ${formattedExtraItem.quantity}, price: ${formattedExtraItem.price}, total: ${formattedExtraItem.total}`)
+          }
+          
+          console.log('📋 Formatted items for contract (with extras):', formattedItems)
+
+          // Eğer hiç item bulunamadıysa hata log'la
+          if (formattedItems.length === 0) {
+            console.error('❌ [CONTRACT] No items found for contract! Active files:', activeStepFiles?.length, 'Quotation items:', allQuotationItems?.length)
+            console.error('❌ [CONTRACT] This will result in an empty price table in the PDF')
+          }
+
+          // Calculate total from active items only
+          const newTotal = formattedItems.reduce((sum, item) => sum + item.total, 0)
+          
+          console.log('💰 Contract total:', newTotal, 'from', formattedItems.length, 'items')
+
+          // Deactivate old contract file(s) - look for any PDF with "Sözleşme" or "contract" in name
+          console.log('📄 Looking for old contracts to deactivate in project:', request.project_id)
+          
+          // First, find all active PDF contracts
+          const { data: existingContracts, error: findError } = await supabaseAdmin
+            .from('project_files')
+            .select('id, file_name, revision, is_active')
+            .eq('project_id', request.project_id)
+            .eq('file_type', 'pdf')
+            .eq('is_active', true)
+          
+          console.log('📄 Found existing active PDF files:', existingContracts)
+          
+          if (existingContracts && existingContracts.length > 0) {
+            // Filter for contracts (files containing Sözleşme, contract, or similar)
+            const contractFiles = existingContracts.filter(f => 
+              f.file_name.toLowerCase().includes('sözleşme') || 
+              f.file_name.toLowerCase().includes('sozlesme') ||
+              f.file_name.toLowerCase().includes('contract') ||
+              f.file_name.includes('📄')
+            )
+            
+            console.log('📄 Contract files to deactivate:', contractFiles)
+            
+            for (const contract of contractFiles) {
+              console.log('📄 Attempting to deactivate contract:', contract.id, contract.file_name)
+              
+              const { data: updateResult, error: deactivateError } = await supabaseAdmin
+                .from('project_files')
+                .update({ is_active: false, status: 'inactive' })
+                .eq('id', contract.id)
+                .select()
+              
+              if (deactivateError) {
+                console.error('❌ Error deactivating contract:', contract.id, deactivateError)
+              } else {
+                console.log('✅ Deactivated old contract:', contract.file_name, 'Result:', updateResult)
+                
+                // Verify the update actually happened
+                const { data: verifyData } = await supabaseAdmin
+                  .from('project_files')
+                  .select('id, file_name, is_active, status')
+                  .eq('id', contract.id)
+                  .single()
+                
+                console.log('🔍 Verification after update:', verifyData)
+                
+                if (verifyData?.is_active === true) {
+                  console.error('❌ CRITICAL: Contract still active after update! Trying RPC...')
+                  // Try with RPC as fallback - use correct function name
+                  const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('deactivate_project_file', { p_file_id: contract.id })
+                  console.log('📄 RPC deactivate result:', rpcResult, rpcError)
+                  
+                  // Verify again after RPC
+                  const { data: verifyData2 } = await supabaseAdmin
+                    .from('project_files')
+                    .select('id, file_name, is_active, status')
+                    .eq('id', contract.id)
+                    .single()
+                  console.log('🔍 Verification after RPC:', verifyData2)
+                }
+              }
+            }
+          }
+
+          // Generate new contract PDF
+          const contractData = {
+            projectName: project.name,
+            projectPartNumber: project.part_number,
+            customerName: project.creator.username,
+            customerCompany: project.creator.company_name,
+            supplierName: project.supplier.username,
+            supplierCompany: project.supplier.company_name,
+            quotationItems: formattedItems,
+            totalPrice: newTotal,
+            deliveryDate: quotation.delivery_date || project.deadline,
+            contractDate: new Date().toLocaleDateString('tr-TR'),
+            projectId: project.id
+          }
+
+          const pdfBuffer = await generateContractPDF(contractData)
+
+          // Upload new contract PDF
+          const fileName = `contract_${request.project_id}_rev_${request.to_revision}_${Date.now()}.pdf`
+          const { error: uploadError } = await supabaseAdmin.storage
+            .from('project-files')
+            .upload(fileName, pdfBuffer, {
+              contentType: 'application/pdf',
+              upsert: false
+            })
+
+          if (uploadError) {
+            console.error('❌ Contract PDF upload error:', uploadError)
+          } else {
+            console.log('✅ New contract PDF uploaded:', fileName)
+
+            // Get public URL
+            const { data: { publicUrl } } = supabaseAdmin.storage
+              .from('project-files')
+              .getPublicUrl(fileName)
+
+            // Save to project_files
+            const { data: insertedContract, error: insertError } = await supabaseAdmin
+              .from('project_files')
+              .insert({
+                project_id: request.project_id,
+                file_name: `📄 Sözleşme_${project.name}_Rev_${request.to_revision}.pdf`,
+                file_type: 'pdf',
+                file_url: publicUrl,
+                file_path: fileName,
+                description: `Revizyon ${request.to_revision} sözleşmesi`,
+                revision: request.to_revision,
+                is_active: true,
+                status: 'active',
+                order_index: 9999 // High order to appear last
+              })
+              .select()
+              .single()
+
+            if (insertError) {
+              console.error('❌ Contract save error:', insertError)
+            } else {
+              console.log('✅ New contract saved to project_files:', insertedContract?.id)
+            }
+          }
+        }
+      }
+    } catch (pdfError) {
+      console.error('❌ Contract PDF generation error:', pdfError)
+      // Don't fail the revision acceptance if PDF generation fails
+    }
+
+    console.log('✅ Revision acceptance completed successfully')
     res.json({ message: 'Revizyon kabul edildi ve uygulandı.' })
   } catch (error) {
     console.error('Accept revision error:', error)

@@ -55,6 +55,7 @@ export default function NewProject() {
     deadline: '',
     selectedSuppliers: []
   })
+  const [showDeadline, setShowDeadline] = useState(false)
 
   useEffect(() => {
     fetchSuppliers()
@@ -104,12 +105,38 @@ export default function NewProject() {
   }
 
   const handleFilesUpload = async (files) => {
+    // Duplicate file kontrolü (sadece dosya adına göre)
+    const duplicateFiles = []
+    const newFiles = []
+    
+    files.forEach(file => {
+      const isDuplicate = uploadedFiles.some(
+        uploaded => uploaded.file_name === file.name
+      )
+      
+      if (isDuplicate) {
+        duplicateFiles.push(file.name)
+      } else {
+        newFiles.push(file)
+      }
+    })
+    
+    // Duplicate dosyalar varsa uyarı göster
+    if (duplicateFiles.length > 0) {
+      alert(`⚠️ Aşağıdaki dosyalar zaten yüklenmiş:\n\n${duplicateFiles.join('\n')}`)
+    }
+    
+    // Yeni dosya yoksa işlemi durdur
+    if (newFiles.length === 0) {
+      return
+    }
+    
     setLoading(true)
     setUploadProgress(10)
     
     try {
       const formData = new FormData()
-      files.forEach(file => {
+      newFiles.forEach(file => {
         formData.append('files', file)
       })
 
@@ -134,14 +161,14 @@ export default function NewProject() {
       setTempFolder(data.temp_folder)
       
       // Add files with default values
-      const newFiles = data.files.map(file => ({
+      const uploadedNewFiles = data.files.map(file => ({
         ...file,
         description: '',
         quantity: file.file_type === 'step' ? '' : null, // Boş başlasın
         notes: ''
       }))
       
-      setUploadedFiles(prev => [...prev, ...newFiles])
+      setUploadedFiles(prev => [...prev, ...uploadedNewFiles])
       setUploadProgress(100)
       
     } catch (error) {
@@ -474,14 +501,40 @@ export default function NewProject() {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="deadline">Termin Tarihi</label>
-                  <input
-                    type="date"
-                    id="deadline"
-                    className="input"
-                    value={projectInfo.deadline}
-                    onChange={(e) => setProjectInfo(prev => ({ ...prev, deadline: e.target.value }))}
-                  />
+                  {!showDeadline ? (
+                    <button 
+                      type="button"
+                      className="add-deadline-btn"
+                      onClick={() => setShowDeadline(true)}
+                    >
+                      + Termin Tarihi Gir <span style={{ opacity: 0.6, fontSize: '0.9em' }}>(Zorunlu Değil)</span>
+                    </button>
+                  ) : (
+                    <div>
+                      <label htmlFor="deadline">Termin Tarihi</label>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input
+                          type="date"
+                          id="deadline"
+                          className="input"
+                          value={projectInfo.deadline}
+                          onChange={(e) => setProjectInfo(prev => ({ ...prev, deadline: e.target.value }))}
+                          style={{ flex: 1 }}
+                        />
+                        <button 
+                          type="button"
+                          className="remove-deadline-btn"
+                          onClick={() => {
+                            setShowDeadline(false)
+                            setProjectInfo(prev => ({ ...prev, deadline: '' }))
+                          }}
+                          title="Termin tarihini kaldır"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

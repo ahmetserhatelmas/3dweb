@@ -161,7 +161,6 @@ export default function UserDashboard() {
                 </div>
                 
                 <h3 className="project-name">{project.name}</h3>
-                <p className="project-part">Parça No: {project.part_number}</p>
                 
                 <div className="project-meta">
                   {project.deadline && (

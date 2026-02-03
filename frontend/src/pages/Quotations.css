@@ -222,8 +222,9 @@
 
 .action-hint {
   font-size: 0.8rem;
-  color: var(--primary);
+  color: #22c55e;
   font-weight: 500;
+  cursor: pointer;
 }
 
 .quoted-date {

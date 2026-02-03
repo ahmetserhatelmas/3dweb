@@ -520,6 +520,45 @@
   border-top: 1px solid var(--border-color);
 }
 
+/* Add Deadline Button */
+.add-deadline-btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--bg-tertiary);
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.add-deadline-btn:hover {
+  background: var(--bg-card);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.remove-deadline-btn {
+  padding: 0.5rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-deadline-btn:hover {
+  background: #ff4444;
+  border-color: #ff4444;
+  color: white;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .wizard-steps {

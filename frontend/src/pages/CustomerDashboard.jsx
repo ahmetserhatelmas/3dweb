@@ -198,7 +198,6 @@ export default function CustomerDashboard() {
                     </span>
                   )}
                 </h3>
-                <p className="project-part">Parça No: {project.part_number}</p>
                 
                 <div className="project-meta">
                   <div className="meta-item">

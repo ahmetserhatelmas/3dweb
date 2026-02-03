@@ -82,13 +82,19 @@ export default function QuotationDetail() {
     }
   }
 
+  // Check if all step files have prices
+  const allStepFilesHavePrices = () => {
+    const stepFileItems = quotationItems.filter(item => item.item_type === 'file' || item.file_id)
+    if (stepFileItems.length === 0) return false
+    return stepFileItems.every(item => item.price && parseFloat(item.price) > 0)
+  }
+
   const handleSubmitQuote = async (e) => {
     e.preventDefault()
     
-    // Validate at least one item has a price
-    const hasValidItems = quotationItems.some(item => item.price && parseFloat(item.price) > 0)
-    if (!hasValidItems) {
-      alert('Lütfen en az bir kalem için fiyat giriniz.')
+    // Validate ALL step files have a price
+    if (!allStepFilesHavePrices()) {
+      alert('Lütfen tüm STEP dosyaları için fiyat giriniz.')
       return
     }
 
@@ -415,38 +421,42 @@ export default function QuotationDetail() {
                   Dosya Kontrolü (Önizleme)
                 </h2>
                 <span className="progress-text">
-                  {project.file_checklists[activeFile.id].filter(i => i.is_checked).length} / {project.file_checklists[activeFile.id].length}
+                  {project.file_checklists[activeFile.id].filter(i => !i.parent_id && i.is_checked).length} / {project.file_checklists[activeFile.id].filter(i => !i.parent_id).length}
                 </span>
               </div>
               <p className="checklist-info">
                 Teklif kabul edildiğinde bu checklist'i işaretleyebileceksiniz.
               </p>
               <div className="checklist-items-preview">
-                {project.file_checklists[activeFile.id]
-                  .filter(item => !item.parent_id) // Only show parent items
-                  .map((parentItem, index) => {
-                    const children = project.file_checklists[activeFile.id].filter(i => i.parent_id === parentItem.id)
-                    return (
-                      <div key={parentItem.id} className="checklist-group-preview">
-                        <div className="checklist-item-preview parent-item">
-                          <span className="item-number">{index + 1}.</span>
-                          <span className="item-title">{parentItem.title}</span>
-                          {parentItem.is_checked && <CheckCircle size={14} className="checked-icon" />}
-                        </div>
-                        {children.length > 0 && (
-                          <div className="checklist-children-preview">
-                            {children.map((child, childIndex) => (
-                              <div key={child.id} className="checklist-item-preview child-item">
-                                <span className="item-number">{index + 1}.{childIndex + 1}</span>
-                                <span className="item-title">{child.title}</span>
-                                {child.is_checked && <CheckCircle size={14} className="checked-icon" />}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                {project.file_checklists[activeFile.id].map((parentItem, index) => {
+                  // Backend sends hierarchical data with children array
+                  const children = parentItem.children || []
+                  return (
+                    <div key={parentItem.id} className="checklist-group-preview">
+                      <div className="checklist-item-preview parent-item">
+                        <span className="item-number">{index + 1}.</span>
+                        <span className="item-title">
+                          {parentItem.title}
+                          {children.length > 0 && (
+                            <span className="children-count"> ({children.filter(c => c.is_checked).length}/{children.length})</span>
+                          )}
+                        </span>
+                        {parentItem.is_checked && <CheckCircle size={14} className="checked-icon" />}
                       </div>
-                    )
-                  })}
+                      {children.length > 0 && (
+                        <div className="checklist-children-preview">
+                          {children.map((child, childIndex) => (
+                            <div key={child.id} className="checklist-item-preview child-item">
+                              <span className="item-number">{index + 1}.{childIndex + 1}</span>
+                              <span className="item-title">{child.title}</span>
+                              {child.is_checked && <CheckCircle size={14} className="checked-icon" />}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -677,7 +687,7 @@ export default function QuotationDetail() {
                   <button 
                     type="submit" 
                     className="btn btn-primary btn-submit"
-                    disabled={submitting}
+                    disabled={submitting || !allStepFilesHavePrices() || !deliveryDate}
                   >
                     {submitting ? 'Gönderiliyor...' : (
                       <>
@@ -686,6 +696,11 @@ export default function QuotationDetail() {
                       </>
                     )}
                   </button>
+                  {!allStepFilesHavePrices() && (
+                    <p className="validation-warning">
+                      Tüm STEP dosyalarına fiyat girmeniz gerekmektedir.
+                    </p>
+                  )}
                 </>
               )}
 

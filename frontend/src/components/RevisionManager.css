@@ -272,6 +272,52 @@
   border-color: var(--accent-primary);
 }
 
+/* Price Calculation Display */
+.price-calculation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(34, 197, 94, 0.15));
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+}
+
+.calc-unit,
+.calc-quantity {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.calc-operator {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.calc-total {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #22c55e;
+}
+
+/* Total amount in quotation display */
+.quotation-item.price-total {
+  background: rgba(34, 197, 94, 0.1);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.total-amount {
+  color: #22c55e;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
 /* Supplier Quotation Display */
 .supplier-quotation {
   margin: 1rem 0;
