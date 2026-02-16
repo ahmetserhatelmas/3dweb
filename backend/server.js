@@ -90,7 +90,9 @@ app.use(helmet({
 // CORS Configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : ['https://kunye.tech', 'https://www.kunye.tech'])
+    ? (process.env.FRONTEND_URL 
+        ? [process.env.FRONTEND_URL, 'https://kunye.tech', 'https://www.kunye.tech']
+        : true) // Allow all origins in production if FRONTEND_URL not set (for Railway temp URLs)
     : ['http://localhost:5173', 'http://localhost:3001', 'http://127.0.0.1:5173'],
   credentials: true,
   optionsSuccessStatus: 200
