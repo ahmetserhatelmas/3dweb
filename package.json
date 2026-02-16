@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "description": "Web Tabanlı Teknik Veri Paylaşım ve Doğrulama Platformu",
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "NODE_TLS_REJECT_UNAUTHORIZED=0 node backend/server.js",
+    "dev:backend": "node backend/server.js",
     "dev:frontend": "vite",
     "start:backend": "node backend/server.js",
     "build": "vite build",
