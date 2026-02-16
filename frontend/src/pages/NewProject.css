@@ -204,6 +204,9 @@
 }
 
 .file-icon.step { color: #10b981; }
+.file-icon.dxf { color: #f59e0b; }
+.file-icon.iges { color: #6366f1; }
+.file-icon.parasolid { color: #ec4899; }
 .file-icon.pdf { color: #ef4444; }
 .file-icon.excel { color: #22c55e; }
 .file-icon.image { color: #8b5cf6; }
@@ -557,6 +560,36 @@
   background: #ff4444;
   border-color: #ff4444;
   color: white;
+}
+
+.no-suppliers-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.no-suppliers-box svg {
+  color: var(--text-muted);
+  opacity: 0.5;
+  margin-bottom: 1rem;
+}
+
+.no-suppliers-box p {
+  margin: 0.25rem 0;
+  color: var(--text-secondary);
+}
+
+.no-suppliers-box .hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  max-width: 300px;
 }
 
 /* Responsive */

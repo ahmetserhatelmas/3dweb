@@ -38,7 +38,27 @@ router.get('/', authenticateToken, async (req, res) => {
       if (error) throw error
       projects = data || []
     } else if (req.user.role === 'customer') {
-      // Customer sees only projects they created - OPTIMIZED: Simpler query
+      // Customer sees projects they created OR projects created by their customer admin
+      let creatorIds = [req.user.id]
+      
+      // If user is a customer user (has customer_id), get projects from their admin
+      if (req.user.customer_id) {
+        creatorIds = [req.user.customer_id]
+      }
+      
+      // If user is customer admin (is_customer_admin), also get projects from their users
+      if (req.user.is_customer_admin) {
+        const { data: customerUsers } = await freshClient
+          .from('customer_users')
+          .select('user_id')
+          .eq('customer_id', req.user.id)
+          .eq('status', 'active')
+        
+        if (customerUsers && customerUsers.length > 0) {
+          creatorIds.push(...customerUsers.map(cu => cu.user_id))
+        }
+      }
+      
       const { data, error } = await freshClient
         .from('projects')
         .select(`
@@ -52,7 +72,7 @@ router.get('/', authenticateToken, async (req, res) => {
             supplier:profiles(id, username, company_name)
           )
         `)
-        .eq('created_by', req.user.id)
+        .in('created_by', creatorIds)
         .order('created_at', { ascending: false })
         .limit(100) // Safety limit
       
@@ -229,6 +249,102 @@ router.get('/quotations', authenticateToken, async (req, res) => {
     res.json(results)
   } catch (error) {
     console.error('Get quotations error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Save draft quotation items (tedarikçi taslak teklif kaydet)
+router.post('/quotations/:projectId/draft', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'user') {
+      return res.status(403).json({ error: 'Sadece tedarikçiler taslak kaydedebilir.' })
+    }
+
+    const { projectId } = req.params
+    const { items, delivery_date } = req.body
+
+    console.log('Save draft quotation:', { projectId, userId: req.user.id, itemCount: items?.length })
+
+    // Check if quotation record exists
+    const { data: existingQuotation } = await supabaseAdmin
+      .from('quotations')
+      .select('id, status')
+      .eq('project_id', projectId)
+      .eq('supplier_id', req.user.id)
+      .single()
+
+    let quotationId
+
+    if (existingQuotation) {
+      // Only allow draft save if status is 'pending' (not yet submitted)
+      if (existingQuotation.status !== 'pending') {
+        return res.status(400).json({ error: 'Teklif zaten gönderilmiş, taslak kaydedilemez.' })
+      }
+      quotationId = existingQuotation.id
+      
+      // Update delivery date if provided
+      if (delivery_date) {
+        await supabaseAdmin
+          .from('quotations')
+          .update({ delivery_date })
+          .eq('id', quotationId)
+      }
+    } else {
+      // Create new quotation record with pending status
+      const { data: newQuotation, error: createError } = await supabaseAdmin
+        .from('quotations')
+        .insert({
+          project_id: projectId,
+          supplier_id: req.user.id,
+          status: 'pending',
+          delivery_date: delivery_date || null
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        console.error('Create quotation error:', createError)
+        return res.status(500).json({ error: 'Teklif oluşturulamadı.' })
+      }
+      quotationId = newQuotation.id
+    }
+
+    // Delete existing draft items and insert new ones
+    if (items && Array.isArray(items) && items.length > 0) {
+      // Delete existing items for this quotation
+      await supabaseAdmin
+        .from('quotation_items')
+        .delete()
+        .eq('quotation_id', quotationId)
+
+      // Insert new items
+      const itemsToInsert = items
+        .filter(item => item.price && parseFloat(item.price) > 0)
+        .map(item => ({
+          quotation_id: quotationId,
+          file_id: item.file_id || null,
+          item_type: item.item_type || 'file',
+          title: item.title || item.file_name || '',
+          price: parseFloat(item.price),
+          quantity: parseInt(item.quantity) || 1,
+          notes: item.notes?.trim() || null
+        }))
+
+      if (itemsToInsert.length > 0) {
+        const { error: insertError } = await supabaseAdmin
+          .from('quotation_items')
+          .insert(itemsToInsert)
+
+        if (insertError) {
+          console.error('Insert quotation items error:', insertError)
+          return res.status(500).json({ error: 'Teklif kalemleri kaydedilemedi.' })
+        }
+      }
+    }
+
+    res.json({ message: 'Taslak kaydedildi.', quotation_id: quotationId })
+  } catch (error) {
+    console.error('Save draft quotation error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })
@@ -847,8 +963,40 @@ router.get('/:id', authenticateToken, async (req, res) => {
       // Admin can access all projects
       canEditChecklist = true
     } else if (req.user.role === 'customer') {
-      // Customer can only access projects they created
-      if (project.created_by !== req.user.id) {
+      // Customer can access projects they created OR projects created by their customer admin/users
+      let allowedCreatorIds = [req.user.id]
+      
+      // If user is a customer user (has customer_id), allow projects from their admin
+      if (req.user.customer_id) {
+        allowedCreatorIds.push(req.user.customer_id)
+        
+        // Also get projects from other users of the same customer
+        const { data: siblingUsers } = await freshClient
+          .from('customer_users')
+          .select('user_id')
+          .eq('customer_id', req.user.customer_id)
+          .eq('status', 'active')
+        
+        if (siblingUsers && siblingUsers.length > 0) {
+          allowedCreatorIds.push(...siblingUsers.map(u => u.user_id))
+        }
+      }
+      
+      // If user is customer admin, allow projects from their users
+      if (req.user.is_customer_admin) {
+        const { data: customerUsers } = await freshClient
+          .from('customer_users')
+          .select('user_id')
+          .eq('customer_id', req.user.id)
+          .eq('status', 'active')
+        
+        if (customerUsers && customerUsers.length > 0) {
+          allowedCreatorIds.push(...customerUsers.map(u => u.user_id))
+        }
+      }
+      
+      // Check if project creator is in allowed list
+      if (!allowedCreatorIds.includes(project.created_by)) {
         return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
       }
       canEditChecklist = false // Müşteri checklist düzenleyemez
@@ -867,24 +1015,28 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
       supplierQuotationStatus = supplierStatus
       
-      // Get quotation items if exists
-      if (supplierStatus.status === 'quoted' || supplierStatus.status === 'accepted') {
-        const { data: quotationData } = await freshClient
-          .from('quotations')
-          .select(`
-            id,
-            total_price,
-            delivery_date,
-            quotation_items:quotation_items(
-              *,
-              file:project_files(id, file_name, file_type, revision)
-            )
-          `)
-          .eq('project_id', req.params.id)
-          .eq('supplier_id', req.user.id)
-          .maybeSingle()
+      // Get quotation items if exists (including draft/pending status)
+      const { data: quotationData } = await freshClient
+        .from('quotations')
+        .select(`
+          id,
+          status,
+          total_price,
+          delivery_date,
+          quotation_items:quotation_items(
+            *,
+            file:project_files(id, file_name, file_type, revision)
+          )
+        `)
+        .eq('project_id', req.params.id)
+        .eq('supplier_id', req.user.id)
+        .maybeSingle()
 
-        if (quotationData && quotationData.quotation_items) {
+      if (quotationData) {
+        supplierQuotationStatus.quotation_status = quotationData.status
+        supplierQuotationStatus.delivery_date = quotationData.delivery_date || supplierStatus.delivery_date
+        
+        if (quotationData.quotation_items && quotationData.quotation_items.length > 0) {
           // Map items to include file info
           supplierQuotationStatus.quotation_items = quotationData.quotation_items.map(item => ({
             ...item,
@@ -1108,6 +1260,7 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
         file_type: file.file_type,
         file_url: file.file_url,
         file_path: file.temp_path,
+        file_size: file.file_size || 0,
         description: file.description || null,
         quantity: file.quantity || 1,
         notes: file.notes || null,
@@ -1175,7 +1328,8 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
         .order('order_index', { ascending: true })
 
       if (insertedFiles && stepTemplates) {
-        const stepFiles = insertedFiles.filter(f => f.file_type === 'step')
+        const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+        const stepFiles = insertedFiles.filter(f => cadFileTypes.includes(f.file_type))
         
         for (const stepFile of stepFiles) {
           // First, insert parent items (description = 'PARENT')

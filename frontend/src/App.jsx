@@ -2,12 +2,15 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Home from './pages/Home'
 import EmailConfirm from './pages/EmailConfirm'
+import InviteAccept from './pages/InviteAccept'
 import AdminDashboard from './pages/AdminDashboard'
 import CustomerDashboard from './pages/CustomerDashboard'
 import UserDashboard from './pages/UserDashboard'
+import CustomersPage from './pages/CustomersPage'
 import ProjectDetail from './pages/ProjectDetail'
 import NewProject from './pages/NewProject'
 import Users from './pages/Users'
+import CustomerUsers from './pages/CustomerUsers'
 import Quotations from './pages/Quotations'
 import QuotationDetail from './pages/QuotationDetail'
 
@@ -57,6 +60,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/auth/confirm" element={<EmailConfirm />} />
+      <Route path="/invite/:inviteCode" element={<InviteAccept />} />
       
       {/* Admin Routes */}
       <Route path="/admin" element={
@@ -90,9 +94,15 @@ export default function App() {
         </ProtectedRoute>
       } />
       
-      <Route path="/customer/users" element={
+      <Route path="/customer/suppliers" element={
         <ProtectedRoute allowedRoles={['customer']}>
           <Users />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/customer/users" element={
+        <ProtectedRoute allowedRoles={['customer']}>
+          <CustomerUsers />
         </ProtectedRoute>
       } />
       
@@ -100,6 +110,12 @@ export default function App() {
       <Route path="/dashboard" element={
         <ProtectedRoute allowedRoles={['user']}>
           <UserDashboard />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/customers" element={
+        <ProtectedRoute allowedRoles={['user']}>
+          <CustomersPage />
         </ProtectedRoute>
       } />
       

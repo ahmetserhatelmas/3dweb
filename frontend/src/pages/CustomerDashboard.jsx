@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Clock, CheckCircle, 
-  Eye, FileBox, Users, Calendar, ChevronRight, UserPlus
+  Eye, FileBox, Users, Calendar, ChevronRight, UserPlus, Copy, Check, Link as LinkIcon
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
@@ -12,11 +12,21 @@ import './Dashboard.css'
 export default function CustomerDashboard() {
   const { user, token, logout } = useAuth()
   const [projects, setProjects] = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false)
   const [filter, setFilter] = useState('all')
+  const [copiedInvite, setCopiedInvite] = useState(false)
+  const [showInviteSection, setShowInviteSection] = useState(false)
+  
+  // Usage stats
+  const [usageStats, setUsageStats] = useState(null)
+  const [loadingStats, setLoadingStats] = useState(true)
 
   useEffect(() => {
     fetchProjects()
+    fetchSuppliers()
+    fetchUsageStats()
   }, [])
 
   const fetchProjects = async () => {
@@ -33,6 +43,46 @@ export default function CustomerDashboard() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchSuppliers = async () => {
+    setLoadingSuppliers(true)
+    try {
+      const res = await fetch(`${API_URL}/api/auth/my-suppliers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSuppliers(data)
+      }
+    } catch (error) {
+      console.error('Fetch suppliers error:', error)
+    } finally {
+      setLoadingSuppliers(false)
+    }
+  }
+
+  const fetchUsageStats = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/my-usage-stats`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setUsageStats(data)
+      }
+    } catch (error) {
+      console.error('Fetch usage stats error:', error)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+
+  const copyInviteLink = () => {
+    const inviteUrl = `${window.location.origin}/invite/${user.invite_code}`
+    navigator.clipboard.writeText(inviteUrl)
+    setCopiedInvite(true)
+    setTimeout(() => setCopiedInvite(false), 2000)
   }
 
   const filteredProjects = projects.filter(p => {
@@ -69,9 +119,13 @@ export default function CustomerDashboard() {
             <FileBox size={20} />
             <span>Projeler</span>
           </Link>
-          <Link to="/customer/users" className="nav-item">
+          <Link to="/customer/suppliers" className="nav-item">
             <Users size={20} />
             <span>Tedarikçiler</span>
+          </Link>
+          <Link to="/customer/users" className="nav-item">
+            <UserPlus size={20} />
+            <span>Kullanıcılar</span>
           </Link>
         </nav>
 
@@ -140,6 +194,200 @@ export default function CustomerDashboard() {
               <span className="stat-label">Tamamlandı</span>
             </div>
           </div>
+        </div>
+
+        {/* Plan Usage Stats */}
+        {!loadingStats && usageStats && (
+          <div style={{
+            background: 'var(--card-bg)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            marginBottom: '1.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.5rem' }}>
+                  {usageStats.plan_type === 'business' ? '🏢' : '⚡'}
+                </span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>
+                    {usageStats.plan_type === 'business' ? 'Business Plan' : 'Starter Plan'}
+                  </h3>
+                  {usageStats.plan_start_date && (
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Başlangıç: {new Date(usageStats.plan_start_date).toLocaleDateString('tr-TR')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              {/* Users */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Kullanıcılar</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                    {usageStats.usage.users} / {usageStats.limits.users}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: '8px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: '4px', 
+                  overflow: 'hidden' 
+                }}>
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${Math.min((usageStats.usage.users / usageStats.limits.users) * 100, 100)}%`,
+                    background: usageStats.usage.users >= usageStats.limits.users ? '#ef4444' : '#3b82f6',
+                    transition: 'width 0.3s'
+                  }} />
+                </div>
+              </div>
+
+              {/* Suppliers */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Tedarikçiler</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                    {usageStats.usage.suppliers} / {usageStats.limits.suppliers}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: '8px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: '4px', 
+                  overflow: 'hidden' 
+                }}>
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${Math.min((usageStats.usage.suppliers / usageStats.limits.suppliers) * 100, 100)}%`,
+                    background: usageStats.usage.suppliers >= usageStats.limits.suppliers ? '#ef4444' : '#10b981',
+                    transition: 'width 0.3s'
+                  }} />
+                </div>
+              </div>
+
+              {/* RFQ This Month */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>RFQ (Bu Ay)</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                    {usageStats.usage.rfq_this_month} / {usageStats.limits.rfq_per_month}
+                  </span>
+                </div>
+                <div style={{ 
+                  height: '8px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: '4px', 
+                  overflow: 'hidden' 
+                }}>
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${Math.min((usageStats.usage.rfq_this_month / usageStats.limits.rfq_per_month) * 100, 100)}%`,
+                    background: usageStats.usage.rfq_this_month >= usageStats.limits.rfq_per_month ? '#ef4444' : '#f59e0b',
+                    transition: 'width 0.3s'
+                  }} />
+                </div>
+              </div>
+
+              {/* Storage */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Depolama</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                    {usageStats.usage.storage_gb} / {usageStats.limits.storage_gb} GB
+                  </span>
+                </div>
+                <div style={{ 
+                  height: '8px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: '4px', 
+                  overflow: 'hidden' 
+                }}>
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${Math.min((usageStats.usage.storage_gb / usageStats.limits.storage_gb) * 100, 100)}%`,
+                    background: usageStats.usage.storage_gb >= usageStats.limits.storage_gb ? '#ef4444' : '#8b5cf6',
+                    transition: 'width 0.3s'
+                  }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Supplier Invitation Section */}
+        <div className="invite-section">
+          <button 
+            className="invite-toggle"
+            onClick={() => setShowInviteSection(!showInviteSection)}
+          >
+            <LinkIcon size={18} />
+            <span>Tedarikçi Davet Et</span>
+            <ChevronRight size={18} className={showInviteSection ? 'rotated' : ''} />
+          </button>
+          
+          {showInviteSection && (
+            <div className="invite-content">
+              <div className="invite-info">
+                <UserPlus size={20} className="invite-icon" />
+                <div>
+                  <h3>Tedarikçilerinizi Ekleyin</h3>
+                  <p>Aşağıdaki davet linkini tedarikçilerinizle paylaşın. Link'e tıklayan tedarikçiler otomatik olarak sizinle bağlanır.</p>
+                </div>
+              </div>
+              
+              <div className="invite-link-box">
+                <div className="invite-link-display">
+                  <input 
+                    type="text" 
+                    value={`${window.location.origin}/invite/${user?.invite_code}`}
+                    readOnly
+                    className="invite-link-input"
+                  />
+                  <button 
+                    className="btn-copy-invite"
+                    onClick={copyInviteLink}
+                  >
+                    {copiedInvite ? <Check size={18} /> : <Copy size={18} />}
+                    {copiedInvite ? 'Kopyalandı!' : 'Kopyala'}
+                  </button>
+                </div>
+                <p className="invite-hint">
+                  Bu link ile tedarikçileriniz sisteme kayıt olduktan sonra sizinle otomatik olarak bağlanır.
+                </p>
+              </div>
+
+              {loadingSuppliers ? (
+                <div className="loading-suppliers">Yükleniyor...</div>
+              ) : suppliers.length > 0 ? (
+                <div className="connected-suppliers">
+                  <h4>Bağlı Tedarikçiler ({suppliers.length})</h4>
+                  <div className="suppliers-list">
+                    {suppliers.map(supplier => (
+                      <div key={supplier.relationship_id} className="supplier-item">
+                        <Users size={16} />
+                        <div className="supplier-details">
+                          <span className="supplier-name">{supplier.supplier_username}</span>
+                          <span className="supplier-company">{supplier.supplier_company}</span>
+                        </div>
+                        <span className="supplier-status active">Aktif</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="no-suppliers">
+                  <Users size={32} />
+                  <p>Henüz bağlı tedarikçiniz yok</p>
+                  <p className="hint">Yukarıdaki linki paylaşarak tedarikçilerinizi ekleyin</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="filter-tabs">

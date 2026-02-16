@@ -514,6 +514,47 @@
   color: var(--primary);
 }
 
+/* File Viewer Header */
+.file-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.file-viewer-header .file-name-display {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 0 1rem;
+}
+
+/* Download File Button */
+.download-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.download-file-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--bg-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
+}
+
 .file-notes {
   padding: 1rem 1.5rem;
   background: rgba(45, 212, 191, 0.08);
@@ -1218,6 +1259,25 @@
 .viewer-mode-info svg {
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+.viewer-mode-info.saving {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+}
+
+.viewer-mode-info.saving .saving-icon {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.viewer-mode-info.saved .saved-icon {
+  color: #10b981;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Responsive Design */

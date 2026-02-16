@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Users as UsersIcon, FileBox, 
-  Trash2, Building2, Mail, Shield, User as UserIcon, Edit2
+  Trash2, Building2, Mail, Shield, User as UserIcon, Edit2, Settings
 } from 'lucide-react'
 import './Users.css'
 
@@ -17,6 +17,12 @@ export default function Users() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [editingUser, setEditingUser] = useState(null)
+  
+  // Plan management
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [editingPlan, setEditingPlan] = useState(null) // { user, current_plan }
+  const [selectedPlan, setSelectedPlan] = useState('starter')
+  const [updatingPlan, setUpdatingPlan] = useState(false)
   
   const isCustomer = user?.role === 'customer'
   const basePath = isCustomer ? '/customer' : '/admin'
@@ -137,24 +143,48 @@ export default function Users() {
   }
 
   const handleDelete = async (userId, username) => {
-    if (!confirm(`"${username}" kullanıcısını silmek istediğinize emin misiniz?`)) {
-      return
+    if (isCustomer) {
+      // Müşteri için: sadece bağı kaldır
+      if (!confirm(`"${username}" tedarikçisini listenizden çıkarmak istediğinize emin misiniz? (Tedarikçi hesabı silinmeyecek, sadece sizinle bağı koparılacak)`)) {
+        return
+      }
+    } else {
+      // Admin için: kullanıcıyı tamamen sil
+      if (!confirm(`"${username}" kullanıcısını silmek istediğinize emin misiniz?`)) {
+        return
+      }
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/auth/users/${userId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      if (isCustomer) {
+        // Müşteri-tedarikçi bağını kaldır
+        const res = await fetch(`${API_URL}/api/auth/suppliers/${userId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
 
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error)
+        if (!res.ok) {
+          const data = await res.json()
+          throw new Error(data.error)
+        }
+
+        setSuccess('Tedarikçi listenizden çıkarıldı!')
+      } else {
+        // Admin: Kullanıcıyı tamamen sil
+        const res = await fetch(`${API_URL}/api/auth/users/${userId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+
+        if (!res.ok) {
+          const data = await res.json()
+          throw new Error(data.error)
+        }
+
+        setSuccess('Kullanıcı başarıyla silindi!')
       }
-
-      setSuccess('Kullanıcı başarıyla silindi!')
-      fetchUsers()
       
+      fetchUsers()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       alert(err.message)
@@ -174,6 +204,49 @@ export default function Users() {
     setSuccess('')
   }
 
+  const handleOpenPlanModal = (u) => {
+    setEditingPlan({ user: u, current_plan: u.plan_type || 'starter' })
+    setSelectedPlan(u.plan_type || 'starter')
+    setShowPlanModal(true)
+  }
+
+  const handleUpdatePlan = async () => {
+    if (!editingPlan) return
+    
+    setUpdatingPlan(true)
+    setError('')
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/customers/${editingPlan.user.id}/plan`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ plan_type: selectedPlan })
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Plan güncellenemedi')
+      }
+
+      setSuccess('Plan başarıyla güncellendi!')
+      fetchUsers()
+      
+      setTimeout(() => {
+        setShowPlanModal(false)
+        setEditingPlan(null)
+        setSuccess('')
+      }, 1500)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setUpdatingPlan(false)
+    }
+  }
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -187,10 +260,16 @@ export default function Users() {
             <FileBox size={20} />
             <span>Projeler</span>
           </Link>
-          <Link to={`${basePath}/users`} className="nav-item active">
+          <Link to={`${basePath}/suppliers`} className="nav-item active">
             <UsersIcon size={20} />
             <span>{isCustomer ? 'Tedarikçiler' : 'Kullanıcılar'}</span>
           </Link>
+          {isCustomer && (
+            <Link to={`${basePath}/users`} className="nav-item">
+              <UsersIcon size={20} />
+              <span>Kullanıcılar</span>
+            </Link>
+          )}
         </nav>
 
         <div className="sidebar-footer">
@@ -217,10 +296,12 @@ export default function Users() {
               {isCustomer ? 'Tedarikçilerinizi yönetin' : 'Sistem kullanıcılarını yönetin'}
             </p>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            <Plus size={20} />
-            {isCustomer ? 'Yeni Tedarikçi' : 'Yeni Kullanıcı'}
-          </button>
+          {!isCustomer && (
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+              <Plus size={20} />
+              Yeni Kullanıcı
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -242,6 +323,28 @@ export default function Users() {
                       {u.company_name}
                     </p>
                   )}
+                  {/* Show plan info for customer admins (admin view only) */}
+                  {!isCustomer && u.role === 'customer' && u.is_customer_admin && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        background: u.plan_type === 'business' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                        color: u.plan_type === 'business' ? '#f59e0b' : '#3b82f6',
+                        border: `1px solid ${u.plan_type === 'business' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                      }}>
+                        {u.plan_type === 'business' ? '🏢 Business' : '⚡ Starter'}
+                      </span>
+                      {u.plan_start_date && (
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                          Başlangıç: {new Date(u.plan_start_date).toLocaleDateString('tr-TR')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="user-card-actions">
                 <span className={`role-badge ${u.role}`}>
@@ -255,20 +358,39 @@ export default function Users() {
                 </span>
                   {u.id !== user.id && (
                     <div className="user-card-buttons">
-                      <button 
-                        className="icon-btn edit-btn" 
-                        onClick={() => handleEdit(u)}
-                        title="Düzenle"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        className="icon-btn delete-btn" 
-                        onClick={() => handleDelete(u.id, u.username)}
-                        title="Sil"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {!isCustomer && u.role === 'customer' && u.is_customer_admin && (
+                        <button 
+                          className="icon-btn" 
+                          onClick={() => handleOpenPlanModal(u)}
+                          title="Plan Değiştir"
+                          style={{
+                            background: 'rgba(251, 191, 36, 0.15)',
+                            color: '#f59e0b',
+                            border: '1px solid rgba(251, 191, 36, 0.3)'
+                          }}
+                        >
+                          <Settings size={16} />
+                        </button>
+                      )}
+                      {!isCustomer && (
+                        <button 
+                          className="icon-btn edit-btn" 
+                          onClick={() => handleEdit(u)}
+                          title="Düzenle"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                      )}
+                      {/* Only show delete button for: admins OR customer admins (not regular customer users) */}
+                      {(!isCustomer || user?.is_customer_admin) && (
+                        <button 
+                          className="icon-btn delete-btn" 
+                          onClick={() => handleDelete(u.id, u.username)}
+                          title={isCustomer ? "Tedarikçiyi Listeden Çıkar" : "Sil"}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -367,6 +489,97 @@ export default function Users() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Plan Modal */}
+        {showPlanModal && editingPlan && (
+          <div className="modal-overlay" onClick={() => setShowPlanModal(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+              <div className="modal-header">
+                <h2>Plan Değiştir - {editingPlan.user.username}</h2>
+                <button className="modal-close" onClick={() => setShowPlanModal(false)}>×</button>
+              </div>
+              
+              <div className="modal-body">
+                {error && <div className="error-message">{error}</div>}
+                {success && <div className="success-message">{success}</div>}
+
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                  {/* Starter Plan */}
+                  <div 
+                    onClick={() => setSelectedPlan('starter')}
+                    style={{
+                      padding: '1.5rem',
+                      border: `2px solid ${selectedPlan === 'starter' ? '#3b82f6' : 'var(--border-color)'}`,
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      background: selectedPlan === 'starter' ? 'rgba(59, 130, 246, 0.05)' : 'var(--bg-card)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem' }}>⚡</span>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>Starter</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Mikro firma, deneme
+                        </p>
+                      </div>
+                    </div>
+                    <ul style={{ margin: 0, padding: '0 0 0 1.5rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                      <li>3 Kullanıcı</li>
+                      <li>10 Tedarikçi</li>
+                      <li>10 RFQ/ay</li>
+                      <li>1 GB Depolama</li>
+                    </ul>
+                  </div>
+
+                  {/* Business Plan */}
+                  <div 
+                    onClick={() => setSelectedPlan('business')}
+                    style={{
+                      padding: '1.5rem',
+                      border: `2px solid ${selectedPlan === 'business' ? '#f59e0b' : 'var(--border-color)'}`,
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      background: selectedPlan === 'business' ? 'rgba(251, 191, 36, 0.05)' : 'var(--bg-card)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '1.5rem' }}>🏢</span>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>Business</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Ana segment (5-50 çalışan)
+                        </p>
+                      </div>
+                    </div>
+                    <ul style={{ margin: 0, padding: '0 0 0 1.5rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                      <li>10 Kullanıcı</li>
+                      <li>40 Tedarikçi</li>
+                      <li>100 RFQ/ay</li>
+                      <li>10 GB Depolama</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="modal-actions" style={{ marginTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowPlanModal(false)}>
+                    İptal
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-primary" 
+                    disabled={updatingPlan || selectedPlan === editingPlan.current_plan}
+                    onClick={handleUpdatePlan}
+                  >
+                    {updatingPlan ? 'Güncelleniyor...' : 'Planı Güncelle'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

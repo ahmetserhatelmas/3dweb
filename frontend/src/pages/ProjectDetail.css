@@ -681,6 +681,9 @@
 }
 
 .file-icon.step { color: #10b981; }
+.file-icon.dxf { color: #f59e0b; }
+.file-icon.iges { color: #6366f1; }
+.file-icon.parasolid { color: #ec4899; }
 .file-icon.pdf { color: #ef4444; }
 .file-icon.excel { color: #22c55e; }
 .file-icon.image { color: #8b5cf6; }
@@ -878,6 +881,47 @@
   background: var(--bg-hover);
 }
 
+/* File Viewer Header */
+.file-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.file-viewer-header .file-name-display {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 0 1rem;
+}
+
+/* Download File Button */
+.download-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.download-file-btn:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--bg-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
+}
+
 /* File Notes */
 .file-notes {
   padding: 1rem 1.5rem;
@@ -938,6 +982,12 @@
 .file-preview-placeholder p {
   font-size: 0.9rem;
   margin: 0;
+}
+
+.file-preview-placeholder .file-type-note {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
 /* Supplier Notes */
@@ -2047,6 +2097,265 @@
 
   .quotation-actions-modal {
     flex-direction: column;
+  }
+}
+
+/* Quotation Comparison Table */
+.quotation-comparison-modal {
+  max-width: 95vw !important;
+  width: auto;
+  min-width: 800px;
+}
+
+.comparison-table-wrapper {
+  overflow-x: auto;
+  max-height: 70vh;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  background: var(--bg-secondary);
+}
+
+.comparison-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-tertiary);
+}
+
+.comparison-table th {
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.comparison-table td {
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.comparison-table tbody tr:hover {
+  background: rgba(0, 212, 170, 0.05);
+}
+
+/* Sticky first column */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--bg-tertiary) !important;
+  min-width: 150px;
+  text-align: left !important;
+}
+
+.comparison-table tbody .sticky-col {
+  background: var(--bg-secondary) !important;
+}
+
+.comparison-table tbody tr:hover .sticky-col {
+  background: rgba(0, 212, 170, 0.08) !important;
+}
+
+/* Column styles */
+.supplier-col {
+  min-width: 160px;
+  border-right: 2px solid var(--border-color);
+}
+
+.delivery-col {
+  min-width: 100px;
+}
+
+.part-col {
+  min-width: 120px;
+  max-width: 180px;
+}
+
+.extra-col {
+  min-width: 100px;
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.total-col {
+  min-width: 120px;
+  background: rgba(16, 185, 129, 0.08);
+  border-left: 2px solid var(--border-color);
+}
+
+.actions-col {
+  min-width: 100px;
+  border-left: 1px solid var(--border-color);
+}
+
+/* Part header */
+.part-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.part-header svg {
+  color: var(--accent-primary);
+}
+
+.part-header.extra svg {
+  color: #fbbf24;
+}
+
+.part-name {
+  font-size: 0.7rem;
+  color: var(--text-primary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.part-rev {
+  font-size: 0.65rem;
+  color: var(--accent-primary);
+  background: rgba(0, 212, 170, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.part-qty {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* Supplier cell */
+.supplier-info-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding-left: 0.5rem;
+}
+
+.supplier-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.supplier-company {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Price cells */
+.price-cell {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.price-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.unit-price {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.total-item-price {
+  font-size: 0.7rem;
+  color: var(--accent-primary);
+}
+
+.extra-price {
+  font-weight: 500;
+  color: #fbbf24;
+}
+
+.no-price {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+/* Delivery cell */
+.delivery-cell {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Total cell */
+.total-cell .total-price {
+  font-weight: 700;
+  color: #10b981;
+  font-size: 1rem;
+}
+
+/* Actions cell */
+.actions-cell {
+  padding: 0.5rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.btn-mini {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-accept-mini {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.btn-accept-mini:hover {
+  background: #10b981;
+  color: white;
+}
+
+.btn-reject-mini {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.btn-reject-mini:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .quotation-comparison-modal {
+    min-width: 100%;
+    max-width: 100% !important;
   }
 }
 

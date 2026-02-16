@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { 
@@ -13,13 +13,32 @@ import {
   Mail,
   Lock,
   User,
-  Building2
+  Building2,
+  Send,
+  MessageSquare
 } from 'lucide-react'
 import './Home.css'
 
 export default function Home() {
+  const { user, loading: authLoading } = useAuth()
+  const navigate = useNavigate()
+  
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && user) {
+      const redirectMap = {
+        admin: '/admin',
+        customer: '/customer',
+        user: '/dashboard'
+      }
+      navigate(redirectMap[user.role] || '/', { replace: true })
+    }
+  }, [user, authLoading, navigate])
+  
   const [showLogin, setShowLogin] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
+  const [loginUserType, setLoginUserType] = useState('supplier') // 'supplier' or 'customer'
+  const [registerUserType, setRegisterUserType] = useState('supplier') // 'supplier' or 'customer'
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [registerForm, setRegisterForm] = useState({ 
     email: '', 
@@ -27,12 +46,83 @@ export default function Home() {
     username: '', 
     company_name: '' 
   })
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    email: '',
+    message: ''
+  })
+  const [contactLoading, setContactLoading] = useState(false)
+  const [contactSuccess, setContactSuccess] = useState(false)
+  const [contactError, setContactError] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [registrationSuccess, setRegistrationSuccess] = useState(false)
   const [registeredEmail, setRegisteredEmail] = useState('')
   const { login } = useAuth()
-  const navigate = useNavigate()
+
+  // Personal email domains that are not allowed
+  const personalEmailDomains = [
+    'gmail.com', 'googlemail.com',
+    'hotmail.com', 'hotmail.co.uk', 'hotmail.fr', 'hotmail.de',
+    'outlook.com', 'outlook.co.uk',
+    'yahoo.com', 'yahoo.co.uk', 'yahoo.fr', 'yahoo.de', 'yahoo.com.tr',
+    'ymail.com',
+    'live.com', 'live.co.uk',
+    'msn.com',
+    'icloud.com', 'me.com', 'mac.com',
+    'aol.com',
+    'mail.com',
+    'protonmail.com', 'proton.me',
+    'zoho.com',
+    'yandex.com', 'yandex.ru',
+    'mail.ru',
+    'gmx.com', 'gmx.de',
+    'web.de',
+    'tutanota.com',
+    'fastmail.com'
+  ]
+
+  const isBusinessEmail = (email) => {
+    const domain = email.split('@')[1]?.toLowerCase()
+    if (!domain) return false
+    return !personalEmailDomains.includes(domain)
+  }
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault()
+    setContactLoading(true)
+    setContactError('')
+    setContactSuccess(false)
+
+    // Check for business email
+    if (!isBusinessEmail(contactForm.email)) {
+      setContactError('Lütfen şirket e-posta adresinizi giriniz. Kişisel e-posta adresleri (Gmail, Hotmail, Yahoo vb.) kabul edilmemektedir.')
+      setContactLoading(false)
+      return
+    }
+
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${apiUrl}/api/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contactForm)
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Mesaj gönderilemedi')
+      }
+
+      setContactSuccess(true)
+      setContactForm({ name: '', email: '', message: '' })
+    } catch (err) {
+      setContactError(err.message)
+    } finally {
+      setContactLoading(false)
+    }
+  }
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -40,7 +130,7 @@ export default function Home() {
     setLoading(true)
 
     try {
-      const user = await login(loginForm.username, loginForm.password)
+      const user = await login(loginForm.username, loginForm.password, loginUserType)
       setShowLogin(false)
       navigate(user.role === 'admin' ? '/admin' : user.role === 'customer' ? '/customer' : '/dashboard')
     } catch (err) {
@@ -60,7 +150,10 @@ export default function Home() {
       const res = await fetch(`${apiUrl}/api/auth/register-public`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(registerForm)
+        body: JSON.stringify({
+          ...registerForm,
+          user_type: registerUserType
+        })
       })
 
       const data = await res.json()
@@ -101,6 +194,7 @@ export default function Home() {
           <nav className="header-nav">
             <a href="#features">Özellikler</a>
             <a href="#benefits">Avantajlar</a>
+            <a href="#contact">İletişim</a>
             <button className="btn-text" onClick={() => setShowLogin(true)}>
               Giriş Yap
             </button>
@@ -226,6 +320,94 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Contact Section */}
+      <section id="contact" className="contact-section">
+        <div className="section-container">
+          <h2 className="section-title">İletişim</h2>
+          <p className="contact-subtitle">Sorularınız mı var? Bize ulaşın, size yardımcı olalım.</p>
+          
+          <div className="contact-content">
+            <div className="contact-info">
+              <div className="contact-info-item">
+                <Mail size={24} />
+                <div>
+                  <h4>Email</h4>
+                  <a href="mailto:info@kunye.tech">info@kunye.tech</a>
+                </div>
+              </div>
+              <div className="contact-info-item">
+                <MessageSquare size={24} />
+                <div>
+                  <h4>Destek</h4>
+                  <p>7/24 destek hattımız ile yanınızdayız</p>
+                </div>
+              </div>
+            </div>
+            
+            <form className="contact-form" onSubmit={handleContactSubmit}>
+              {contactError && <div className="error-message">{contactError}</div>}
+              {contactSuccess && (
+                <div className="success-message">
+                  <CheckCircle size={18} />
+                  Mesajınız başarıyla gönderildi! En kısa sürede size dönüş yapacağız.
+                </div>
+              )}
+              
+              <div className="form-group">
+                <label>
+                  <User size={18} />
+                  Adınız Soyadınız
+                </label>
+                <input
+                  type="text"
+                  value={contactForm.name}
+                  onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                  placeholder="Adınız Soyadınız"
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>
+                  <Mail size={18} />
+                  İş E-posta Adresiniz
+                </label>
+                <input
+                  type="email"
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                  placeholder="ornek@sirket.com"
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>
+                  <MessageSquare size={18} />
+                  Mesajınız
+                </label>
+                <textarea
+                  value={contactForm.message}
+                  onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                  placeholder="Mesajınızı buraya yazın..."
+                  rows={5}
+                  required
+                />
+              </div>
+              
+              <button type="submit" className="btn-submit" disabled={contactLoading}>
+                {contactLoading ? 'Gönderiliyor...' : (
+                  <>
+                    <Send size={18} />
+                    Mesaj Gönder
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="cta-section">
         <div className="section-container">
@@ -245,16 +427,56 @@ export default function Home() {
             <img src="/logo.png" alt="Kunye.tech" className="footer-logo-img" />
             <span>Kunye.tech</span>
           </div>
-          <p>&copy; 2026 Kunye.tech. Tüm hakları saklıdır.</p>
+          <p className="footer-copyright">&copy; 2026 Kunye.tech. Tüm hakları saklıdır.</p>
+          <p className="footer-license">
+            This application uses{' '}
+            <a href="https://www.opencascade.com/" target="_blank" rel="noopener noreferrer">
+              Open CASCADE Technology
+            </a>
+            , licensed under{' '}
+            <a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html" target="_blank" rel="noopener noreferrer">
+              LGPL 2.1
+            </a>
+            .
+          </p>
         </div>
       </footer>
 
       {/* Login Modal */}
       {showLogin && (
-        <div className="modal-overlay" onClick={() => setShowLogin(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <button className="modal-close" onClick={() => setShowLogin(false)}>×</button>
             <h2>Giriş Yap</h2>
+            
+            {/* User Type Tabs */}
+            <div className="user-type-tabs">
+              <button
+                type="button"
+                className={`tab-btn ${loginUserType === 'supplier' ? 'active' : ''}`}
+                onClick={() => setLoginUserType('supplier')}
+              >
+                <Users size={16} />
+                Tedarikçi Girişi
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${loginUserType === 'customer' ? 'active' : ''}`}
+                onClick={() => setLoginUserType('customer')}
+              >
+                <Building2 size={16} />
+                Müşteri Girişi
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${loginUserType === 'admin' ? 'active' : ''}`}
+                onClick={() => setLoginUserType('admin')}
+              >
+                <Shield size={16} />
+                Admin Girişi
+              </button>
+            </div>
+
             <form onSubmit={handleLogin}>
               {error && <div className="error-message">{error}</div>}
               <div className="form-group">
@@ -291,10 +513,31 @@ export default function Home() {
 
       {/* Register Modal */}
       {showRegister && (
-        <div className="modal-overlay" onClick={() => setShowRegister(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <button className="modal-close" onClick={() => setShowRegister(false)}>×</button>
             <h2>Kayıt Ol</h2>
+            
+            {/* User Type Tabs */}
+            <div className="user-type-tabs">
+              <button
+                type="button"
+                className={`tab-btn ${registerUserType === 'supplier' ? 'active' : ''}`}
+                onClick={() => setRegisterUserType('supplier')}
+              >
+                <Users size={16} />
+                Tedarikçi Kaydı
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${registerUserType === 'customer' ? 'active' : ''}`}
+                onClick={() => setRegisterUserType('customer')}
+              >
+                <Building2 size={16} />
+                Müşteri Kaydı
+              </button>
+            </div>
+
             <form onSubmit={handleRegister}>
               {error && <div className="error-message">{error}</div>}
               <div className="form-group">
@@ -355,8 +598,8 @@ export default function Home() {
 
       {/* Email Confirmation Success Modal */}
       {registrationSuccess && (
-        <div className="modal-overlay" onClick={() => setRegistrationSuccess(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <button className="modal-close" onClick={() => setRegistrationSuccess(false)}>×</button>
             <div className="success-content">
               <div className="success-icon">

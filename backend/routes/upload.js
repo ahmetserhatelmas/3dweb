@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import { v4 as uuidv4 } from 'uuid'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken } from '../middleware/supabaseAuth.js'
+import { uploadToR2, generateR2Key } from '../lib/r2Storage.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -36,7 +37,13 @@ const documentFilter = (req, file, cb) => {
 // Project files filter - STEP, PDF, Excel, images
 const projectFileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase()
-  const allowed = ['.step', '.stp', '.pdf', '.xlsx', '.xls', '.jpg', '.jpeg', '.png', '.doc', '.docx']
+  const allowed = [
+    '.step', '.stp',           // STEP
+    '.dxf',                    // DXF
+    '.igs', '.iges',           // IGES
+    '.x_t', '.x_b', '.xmt_txt', '.xmt_bin',  // Parasolid
+    '.pdf', '.xlsx', '.xls', '.jpg', '.jpeg', '.png', '.doc', '.docx'
+  ]
   if (allowed.includes(ext)) {
     cb(null, true)
   } else {
@@ -44,9 +51,9 @@ const projectFileFilter = (req, file, cb) => {
   }
 }
 
-const uploadStep = multer({ storage, fileFilter: stepFilter, limits: { fileSize: 100 * 1024 * 1024 } })
-const uploadDocument = multer({ storage, fileFilter: documentFilter, limits: { fileSize: 20 * 1024 * 1024 } })
-const uploadProjectFiles = multer({ storage, fileFilter: projectFileFilter, limits: { fileSize: 100 * 1024 * 1024 } })
+const uploadStep = multer({ storage, fileFilter: stepFilter, limits: { fileSize: 500 * 1024 * 1024 } }) // 500MB
+const uploadDocument = multer({ storage, fileFilter: documentFilter, limits: { fileSize: 20 * 1024 * 1024 } }) // 20MB
+const uploadProjectFiles = multer({ storage, fileFilter: projectFileFilter, limits: { fileSize: 500 * 1024 * 1024 } }) // 500MB
 
 // Upload STEP file to Supabase Storage (admin & customer)
 router.post('/step/:projectId', authenticateToken, uploadStep.single('file'), async (req, res) => {
@@ -162,7 +169,7 @@ router.post('/document/:projectId', authenticateToken, uploadDocument.single('fi
   }
 })
 
-// Upload multiple project files (for new project wizard)
+// Upload multiple project files (for new project wizard) - NOW USING R2
 router.post('/project-files', authenticateToken, uploadProjectFiles.array('files', 20), async (req, res) => {
   try {
     if (req.user.role !== 'admin' && req.user.role !== 'customer') {
@@ -178,41 +185,36 @@ router.post('/project-files', authenticateToken, uploadProjectFiles.array('files
 
     for (const file of req.files) {
       const ext = path.extname(file.originalname).toLowerCase()
-      const fileName = `temp/${tempId}/${uuidv4()}${ext}`
       
       // Determine file type
       let fileType = 'other'
       if (['.step', '.stp'].includes(ext)) fileType = 'step'
+      else if (ext === '.dxf') fileType = 'dxf'
+      else if (['.igs', '.iges'].includes(ext)) fileType = 'iges'
+      else if (['.x_t', '.x_b', '.xmt_txt', '.xmt_bin'].includes(ext)) fileType = 'parasolid'
       else if (ext === '.pdf') fileType = 'pdf'
       else if (['.xlsx', '.xls'].includes(ext)) fileType = 'excel'
       else if (['.jpg', '.jpeg', '.png'].includes(ext)) fileType = 'image'
 
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('project-files')
-        .upload(fileName, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false
-        })
+      // Generate R2 key
+      const r2Key = `temp/${tempId}/${uuidv4()}${ext}`
 
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
+      try {
+        // Upload to Cloudflare R2
+        const { url } = await uploadToR2(file.buffer, r2Key, file.mimetype)
+
+        uploadedFiles.push({
+          temp_path: r2Key,
+          file_url: url,
+          file_name: Buffer.from(file.originalname, 'latin1').toString('utf8'),
+          file_type: fileType,
+          file_size: file.size,
+          mime_type: file.mimetype
+        })
+      } catch (uploadError) {
+        console.error('R2 upload error:', uploadError)
         continue
       }
-
-      // Get signed URL
-      const { data: signedUrlData } = await supabaseAdmin.storage
-        .from('project-files')
-        .createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
-
-      uploadedFiles.push({
-        temp_path: fileName,
-        file_url: signedUrlData?.signedUrl,
-        file_name: Buffer.from(file.originalname, 'latin1').toString('utf8'),
-        file_type: fileType,
-        file_size: file.size,
-        mime_type: file.mimetype
-      })
     }
 
     res.json({
@@ -226,7 +228,7 @@ router.post('/project-files', authenticateToken, uploadProjectFiles.array('files
   }
 })
 
-// General file upload for revisions (accepts any project file type)
+// General file upload for revisions (accepts any project file type) - NOW USING R2
 router.post('/', authenticateToken, uploadProjectFiles.single('file'), async (req, res) => {
   try {
     if (req.user.role !== 'admin' && req.user.role !== 'customer') {
@@ -245,38 +247,21 @@ router.post('/', authenticateToken, uploadProjectFiles.single('file'), async (re
 
     const tempId = uuidv4()
     const ext = path.extname(req.file.originalname).toLowerCase()
-    const fileName = `revisions/${tempId}/${uuidv4()}${ext}`
+    const r2Key = `revisions/${tempId}/${uuidv4()}${ext}`
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('project-files')
-      .upload(fileName, req.file.buffer, {
-        contentType: req.file.mimetype,
-        upsert: false
-      })
+    // Upload to Cloudflare R2
+    const { url } = await uploadToR2(req.file.buffer, r2Key, req.file.mimetype)
 
-    if (uploadError) {
-      console.error('Storage upload error:', uploadError)
-      throw uploadError
-    }
-
-    // Get signed URL
-    const { data: signedUrlData } = await supabaseAdmin.storage
-      .from('project-files')
-      .createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
-
-    const fileUrl = signedUrlData?.signedUrl
-
-    if (!fileUrl) {
+    if (!url) {
       throw new Error('Dosya URL\'si alınamadı')
     }
 
-    console.log('Upload successful:', { fileName, fileUrl: fileUrl.substring(0, 50) + '...' })
+    console.log('Upload successful:', { r2Key, url: url.substring(0, 50) + '...' })
 
     res.json({
       message: 'Dosya başarıyla yüklendi.',
-      url: fileUrl,
-      path: fileName,
+      url: url,
+      path: r2Key,
       file_name: Buffer.from(req.file.originalname, 'latin1').toString('utf8')
     })
   } catch (error) {

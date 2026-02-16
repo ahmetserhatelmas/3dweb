@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   FileText, Calendar, Building2, Clock, ChevronRight, 
-  Send, CheckCircle, XCircle, DollarSign, Box, LogOut, FileBox
+  Send, CheckCircle, XCircle, DollarSign, Box, LogOut, FileBox, Users
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Quotations.css'
@@ -80,10 +80,17 @@ export default function Quotations() {
             <Link to="/quotations" className="nav-item active">
               <Send size={20} />
               <span>Teklifler</span>
+              {pendingCount > 0 && (
+                <span className="nav-badge">{pendingCount}</span>
+              )}
             </Link>
             <Link to="/dashboard" className="nav-item">
               <FileBox size={20} />
               <span>İşlerim</span>
+            </Link>
+            <Link to="/customers" className="nav-item">
+              <Users size={20} />
+              <span>Müşterilerim</span>
             </Link>
           </nav>
         </aside>
@@ -109,10 +116,17 @@ export default function Quotations() {
           <Link to="/quotations" className="nav-item active">
             <Send size={20} />
             <span>Teklifler</span>
+            {pendingCount > 0 && (
+              <span className="nav-badge">{pendingCount}</span>
+            )}
           </Link>
           <Link to="/dashboard" className="nav-item">
             <FileBox size={20} />
             <span>İşlerim</span>
+          </Link>
+          <Link to="/customers" className="nav-item">
+            <Users size={20} />
+            <span>Müşterilerim</span>
           </Link>
         </nav>
 

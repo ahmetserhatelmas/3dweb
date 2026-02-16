@@ -1,19 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   ArrowLeft, FileText, Download, Calendar, Building2, 
   Clock, Send, CheckCircle, Box, FileSpreadsheet, Image, File, Eye, ChevronLeft,
-  DollarSign, MessageSquare, Plus, X
+  DollarSign, MessageSquare, Plus, X, Save
 } from 'lucide-react'
 import StepViewer from '../components/StepViewer'
+import DxfViewer from '../components/DxfViewer'
+import '../components/DxfViewer.css'
 import './QuotationDetail.css'
 
 // File type icons
 const getFileIcon = (type) => {
   switch (type) {
     case 'step': return <Box size={20} className="file-icon step" />
+    case 'dxf': return <Box size={20} className="file-icon dxf" />
+    case 'iges': return <Box size={20} className="file-icon iges" />
+    case 'parasolid': return <Box size={20} className="file-icon parasolid" />
     case 'pdf': return <FileText size={20} className="file-icon pdf" />
     case 'excel': return <FileSpreadsheet size={20} className="file-icon excel" />
     case 'image': return <Image size={20} className="file-icon image" />
@@ -37,10 +42,81 @@ export default function QuotationDetail() {
   const [activeFile, setActiveFile] = useState(null)
   const [viewMode, setViewMode] = useState('files')
   const [showSubmittedQuotationModal, setShowSubmittedQuotationModal] = useState(false)
+  
+  // Auto-save
+  const [saving, setSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState(null)
+  const saveTimeoutRef = useRef(null)
+  const isInitialLoadRef = useRef(true)
 
   useEffect(() => {
     fetchProject()
   }, [id])
+
+  // Auto-save when quotationItems or deliveryDate changes
+  useEffect(() => {
+    // Skip initial load
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false
+      return
+    }
+
+    // Don't auto-save if project is already quoted
+    if (project?.my_quotation_status?.status === 'quoted') {
+      return
+    }
+
+    // Debounce save - wait 1 second after last change
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveDraft()
+    }, 1000)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [quotationItems, deliveryDate])
+
+  const saveDraft = async () => {
+    // Don't save if no items with prices
+    const hasAnyPrice = quotationItems.some(item => item.price && parseFloat(item.price) > 0)
+    if (!hasAnyPrice) return
+
+    setSaving(true)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/quotations/${id}/draft`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          items: quotationItems.filter(item => item.price && parseFloat(item.price) > 0).map(item => ({
+            file_id: item.file_id || null,
+            item_type: item.item_type || 'file',
+            title: item.title || item.file_name || '',
+            price: parseFloat(item.price),
+            quantity: item.quantity || 1,
+            notes: item.notes?.trim() || null
+          })),
+          delivery_date: deliveryDate || null
+        })
+      })
+
+      if (res.ok) {
+        setLastSaved(new Date())
+      }
+    } catch (error) {
+      console.error('Auto-save error:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const fetchProject = async () => {
     try {
@@ -51,16 +127,50 @@ export default function QuotationDetail() {
         const data = await res.json()
         setProject(data)
         
-        // Initialize quotation items from project files (STEP files only)
+        // Initialize quotation items from project files (CAD files only)
         if (data.project_files && data.project_files.length > 0) {
-          const stepFiles = data.project_files.filter(f => f.file_type === 'step' && f.is_active && f.status !== 'pending')
+          const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+          const stepFiles = data.project_files.filter(f => cadFileTypes.includes(f.file_type) && f.is_active && f.status !== 'pending')
           
-          // If already quoted, load existing items
-          if (data.my_quotation_status?.quotation_items) {
-            setQuotationItems(data.my_quotation_status.quotation_items)
+          // If we have saved quotation items (draft or quoted), merge with all files
+          if (data.my_quotation_status?.quotation_items && data.my_quotation_status.quotation_items.length > 0) {
+            const savedItems = data.my_quotation_status.quotation_items
+            
+            // Create a map of saved items by file_id
+            const savedItemsMap = {}
+            const extraItems = []
+            savedItems.forEach(item => {
+              if (item.file_id) {
+                savedItemsMap[item.file_id] = item
+              } else if (item.item_type === 'extra') {
+                extraItems.push(item)
+              }
+            })
+            
+            // Merge saved items with all CAD files
+            const mergedItems = stepFiles.map(file => {
+              if (savedItemsMap[file.id]) {
+                return {
+                  ...savedItemsMap[file.id],
+                  file_name: file.file_name,
+                  quantity: file.quantity || savedItemsMap[file.id].quantity || 1
+                }
+              }
+              return {
+                file_id: file.id,
+                file_name: file.file_name,
+                item_type: 'file',
+                price: '',
+                quantity: file.quantity || 1,
+                notes: ''
+              }
+            })
+            
+            // Add extra items at the end
+            setQuotationItems([...mergedItems, ...extraItems])
             setDeliveryDate(data.my_quotation_status.delivery_date || '')
           } else {
-            // Initialize with empty items for each STEP file
+            // Initialize with empty items for each CAD file
             const initialItems = stepFiles.map(file => ({
               file_id: file.id,
               file_name: file.file_name,
@@ -72,6 +182,11 @@ export default function QuotationDetail() {
             setQuotationItems(initialItems)
           }
         }
+        
+        // Mark initial load complete after a short delay
+        setTimeout(() => {
+          isInitialLoadRef.current = false
+        }, 500)
       } else {
         navigate('/dashboard')
       }
@@ -206,6 +321,21 @@ export default function QuotationDetail() {
     switch (file.file_type) {
       case 'step':
         return <StepViewer fileUrl={file.file_url} />
+      case 'dxf':
+        return <DxfViewer fileUrl={file.file_url} fileName={file.file_name} />
+      case 'iges':
+      case 'parasolid':
+        return (
+          <div className="file-preview-placeholder">
+            <Box size={64} />
+            <p>{file.file_name}</p>
+            <p className="file-type-note">Bu dosya türü için önizleme desteklenmiyor</p>
+            <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              <Download size={18} />
+              Dosyayı İndir
+            </a>
+          </div>
+        )
       case 'pdf':
         return (
           <iframe 
@@ -354,7 +484,7 @@ export default function QuotationDetail() {
                         <span className="file-card-desc">{file.description}</span>
                       )}
                       <div className="file-card-meta">
-                        {file.file_type === 'step' && file.quantity > 1 && (
+                        {['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && file.quantity > 1 && (
                           <span className="file-card-qty">{file.quantity} adet</span>
                         )}
                         {file.revision && (
@@ -374,12 +504,37 @@ export default function QuotationDetail() {
             </>
           ) : viewMode === 'viewer' && activeFile ? (
             <>
-              <div className="panel-header">
+              <div className="panel-header file-viewer-header">
                 <button className="back-to-files" onClick={handleBackToFiles}>
                   <ChevronLeft size={20} />
                   Dosyalara Dön
                 </button>
-                <span className="file-name">{activeFile.file_name}</span>
+                <span className="file-name-display">{activeFile.file_name}</span>
+                {activeFile.file_url && (
+                  <button 
+                    className="download-file-btn"
+                    title="Dosyayı İndir"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(activeFile.file_url)
+                        const blob = await response.blob()
+                        const url = window.URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = activeFile.file_name
+                        document.body.appendChild(a)
+                        a.click()
+                        window.URL.revokeObjectURL(url)
+                        document.body.removeChild(a)
+                      } catch (err) {
+                        console.error('Download error:', err)
+                        window.open(activeFile.file_url, '_blank')
+                      }
+                    }}
+                  >
+                    <Download size={18} />
+                  </button>
+                )}
               </div>
               <div className="viewer-container">
                 {renderFilePreview(activeFile)}
@@ -412,8 +567,8 @@ export default function QuotationDetail() {
 
         {/* Right Panel: Quote Form & Checklist Preview */}
         <div className="quote-panel">
-          {/* STEP Dosyası Checklist - görüntülenen STEP dosyası için */}
-          {viewMode === 'viewer' && activeFile?.file_type === 'step' && project.file_checklists?.[activeFile.id] && (
+          {/* CAD Dosyası Checklist - görüntülenen CAD dosyası için */}
+          {viewMode === 'viewer' && ['step', 'dxf', 'iges', 'parasolid'].includes(activeFile?.file_type) && project.file_checklists?.[activeFile.id] && (
             <div className="file-checklist-section">
               <div className="panel-header">
                 <h2>
@@ -492,7 +647,7 @@ export default function QuotationDetail() {
             
             <form onSubmit={handleSubmitQuote} className="quote-form">
               {/* Viewer Mode - Tek Dosya İçin Fiyat Girişi */}
-              {viewMode === 'viewer' && activeFile && activeFile.file_type === 'step' && (
+              {viewMode === 'viewer' && activeFile && ['step', 'dxf', 'iges', 'parasolid'].includes(activeFile.file_type) && (
                 <div className="single-file-quotation">
                   <h3 className="items-header">
                     <Box size={16} />
@@ -544,9 +699,23 @@ export default function QuotationDetail() {
                           />
                         </div>
                         
-                        <div className="viewer-mode-info">
-                          <MessageSquare size={14} />
-                          <span>Değişiklikler otomatik kaydedilir. Teklifi göndermek için "Dosyalara Dön" butonuna tıklayın.</span>
+                        <div className={`viewer-mode-info ${saving ? 'saving' : ''} ${lastSaved ? 'saved' : ''}`}>
+                          {saving ? (
+                            <>
+                              <Save size={14} className="saving-icon" />
+                              <span>Kaydediliyor...</span>
+                            </>
+                          ) : lastSaved ? (
+                            <>
+                              <CheckCircle size={14} className="saved-icon" />
+                              <span>Değişiklikler kaydedildi. Teklifi göndermek için "Dosyalara Dön" butonuna tıklayın.</span>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare size={14} />
+                              <span>Değişiklikler otomatik kaydedilir. Teklifi göndermek için "Dosyalara Dön" butonuna tıklayın.</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     )

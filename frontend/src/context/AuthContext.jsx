@@ -66,13 +66,13 @@ export function AuthProvider({ children }) {
     return false
   }
 
-  // Login with username (for Supabase)
-  const login = async (username, password) => {
+  // Login with username (for Supabase) - with user_type
+  const login = async (username, password, user_type = 'supplier') => {
     const apiUrl = import.meta.env.VITE_API_URL || ''
     const res = await fetch(`${apiUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, user_type })
     })
     
     const data = await res.json()
@@ -88,6 +88,51 @@ export function AuthProvider({ children }) {
     }
     setToken(data.token)
     setUser(data.user)
+
+    // Check for pending invite codes
+    const pendingInviteCode = localStorage.getItem('pending_invite_code')
+    const pendingUserInviteCode = localStorage.getItem('pending_user_invite_code')
+    
+    if (pendingInviteCode && data.user.user_type === 'supplier') {
+      try {
+        const inviteRes = await fetch(`${apiUrl}/api/auth/accept-invite`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${data.token}`
+          },
+          body: JSON.stringify({ invite_code: pendingInviteCode })
+        })
+        
+        if (inviteRes.ok) {
+          localStorage.removeItem('pending_invite_code')
+          console.log('✅ Supplier invite accepted automatically after login')
+        }
+      } catch (err) {
+        console.error('Auto supplier invite accept failed:', err)
+      }
+    }
+    
+    if (pendingUserInviteCode && data.user.user_type === 'customer') {
+      try {
+        const inviteRes = await fetch(`${apiUrl}/api/auth/accept-user-invite`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${data.token}`
+          },
+          body: JSON.stringify({ invite_code: pendingUserInviteCode })
+        })
+        
+        if (inviteRes.ok) {
+          localStorage.removeItem('pending_user_invite_code')
+          console.log('✅ User invite accepted automatically after login')
+        }
+      } catch (err) {
+        console.error('Auto user invite accept failed:', err)
+      }
+    }
+
     return data.user
   }
 

@@ -65,24 +65,59 @@ router.post('/verify-email', async (req, res) => {
   }
 })
 
-// Login with username/password
+// Login with username/password (with user_type: supplier, customer, or admin)
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body
+    const { username, password, user_type } = req.body
+    
+    console.log('🔐 Login attempt:', { username, user_type })
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli.' })
     }
 
-    // Find user by username in profiles
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, username, role, company_name')
-      .eq('username', username)
-      .single()
+    if (!user_type || !['supplier', 'customer', 'admin'].includes(user_type)) {
+      console.log('❌ Invalid user_type:', user_type)
+      return res.status(400).json({ error: 'Geçerli bir kullanıcı tipi seçiniz.' })
+    }
+
+    let profile, profileError
+
+    if (user_type === 'admin') {
+      // Admin login - check by username and role only (no user_type check)
+      console.log('🔍 Admin login - searching for:', username)
+      const result = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+        .eq('username', username)
+        .eq('role', 'admin')
+        .single()
+      
+      profile = result.data
+      profileError = result.error
+      console.log('Admin profile found:', !!profile)
+    } else {
+      // Supplier/Customer login - check by username and user_type
+      console.log('🔍 User login - searching for:', username, user_type)
+      const result = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+        .eq('username', username)
+        .eq('user_type', user_type)
+        .single()
+      
+      profile = result.data
+      profileError = result.error
+      console.log('User profile found:', !!profile)
+    }
 
     if (profileError || !profile) {
-      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
+      const errorMessages = {
+        supplier: 'Tedarikçi hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
+        customer: 'Müşteri hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
+        admin: 'Admin hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.'
+      }
+      return res.status(401).json({ error: errorMessages[user_type] })
     }
 
     // Get email from auth.users
@@ -103,6 +138,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
     }
 
+    console.log('✅ Login successful:', { username, role: profile.role })
+
     res.json({
       token: data.session.access_token,
       refresh_token: data.session.refresh_token,
@@ -110,7 +147,11 @@ router.post('/login', async (req, res) => {
         id: profile.id,
         username: profile.username,
         role: profile.role,
-        company_name: profile.company_name
+        user_type: profile.user_type,
+        company_name: profile.company_name,
+        invite_code: profile.invite_code,
+        is_customer_admin: profile.is_customer_admin,
+        customer_id: profile.customer_id
       }
     })
   } catch (error) {
@@ -119,13 +160,17 @@ router.post('/login', async (req, res) => {
   }
 })
 
-// Public register endpoint (for landing page - creates customer)
+// Public register endpoint (for landing page - creates customer or supplier)
 router.post('/register-public', async (req, res) => {
   try {
-    const { email, password, username, company_name } = req.body
+    const { email, password, username, company_name, user_type } = req.body
 
     if (!email || !password || !username) {
       return res.status(400).json({ error: 'Email, şifre ve kullanıcı adı gerekli.' })
+    }
+
+    if (!user_type || !['supplier', 'customer'].includes(user_type)) {
+      return res.status(400).json({ error: 'Geçerli bir kullanıcı tipi seçiniz.' })
     }
 
     // Validate email format
@@ -134,23 +179,18 @@ router.post('/register-public', async (req, res) => {
       return res.status(400).json({ error: 'Geçerli bir email adresi giriniz.' })
     }
 
-    // Check if email already exists
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers()
-    const emailExists = existingUser?.users?.some(u => u.email === email)
-    
-    if (emailExists) {
-      return res.status(400).json({ error: 'Bu email adresi zaten kullanılıyor.' })
-    }
-
-    // Check if username already exists
+    // Check if username already exists for this user_type
     const { data: existingProfile } = await supabaseAdmin
       .from('profiles')
       .select('id')
       .eq('username', username)
+      .eq('user_type', user_type)
       .single()
 
     if (existingProfile) {
-      return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+      return res.status(400).json({ 
+        error: `Bu kullanıcı adı ${user_type === 'supplier' ? 'tedarikçi' : 'müşteri'} hesabı için zaten kullanılıyor.` 
+      })
     }
 
     // Get redirect URL for email confirmation
@@ -158,7 +198,7 @@ router.post('/register-public', async (req, res) => {
       (process.env.NODE_ENV === 'production' ? 'https://kunye.tech' : 'http://localhost:5173')
     const confirmUrl = `${redirectUrl}/auth/confirm`
 
-    // Create user in Supabase Auth with customer role
+    // Create user in Supabase Auth
     // For local development, skip email confirmation. Set NODE_ENV=production to require email confirmation
     const requireEmailConfirmation = process.env.NODE_ENV === 'production' && process.env.REQUIRE_EMAIL_CONFIRMATION !== 'false'
     
@@ -172,7 +212,8 @@ router.post('/register-public', async (req, res) => {
         options: {
           data: {
             username,
-            role: 'customer',
+            role: user_type === 'supplier' ? 'user' : 'customer',
+            user_type,
             company_name: company_name || ''
           },
           emailRedirectTo: confirmUrl
@@ -188,7 +229,8 @@ router.post('/register-public', async (req, res) => {
         email_confirm: true,
         user_metadata: {
           username,
-          role: 'customer',
+          role: user_type === 'supplier' ? 'user' : 'customer',
+          user_type,
           company_name: company_name || ''
         }
       })
@@ -216,14 +258,15 @@ router.post('/register-public', async (req, res) => {
       return res.status(400).json({ error: 'Kullanıcı oluşturulurken bir hata oluştu.' })
     }
 
-    // Create or update profile with customer role
+    // Create or update profile
     // Use upsert because trigger might have already created a profile
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert({
         id: data.user.id,
         username,
-        role: 'customer',
+        role: user_type === 'supplier' ? 'user' : 'customer',
+        user_type,
         company_name: company_name || ''
       }, { onConflict: 'id' })
 
@@ -237,12 +280,15 @@ router.post('/register-public', async (req, res) => {
         // Check if it's username conflict
         const { data: existingProfile } = await supabaseAdmin
           .from('profiles')
-          .select('username')
+          .select('username, user_type')
           .eq('username', username)
+          .eq('user_type', user_type)
           .single()
         
         if (existingProfile && existingProfile.username === username) {
-          return res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor.' })
+          return res.status(400).json({ 
+            error: `Bu kullanıcı adı ${user_type === 'supplier' ? 'tedarikçi' : 'müşteri'} hesabı için zaten kullanılıyor.` 
+          })
         }
         
         return res.status(400).json({ error: 'Bu kullanıcı zaten kayıtlı.' })
@@ -497,7 +543,11 @@ router.get('/me', authenticateToken, async (req, res) => {
       email: req.user.email,
       username: req.user.username,
       role: req.user.role,
-      company_name: req.user.company_name
+      user_type: req.user.user_type,
+      company_name: req.user.company_name,
+      invite_code: req.user.invite_code,
+      is_customer_admin: req.user.is_customer_admin,
+      customer_id: req.user.customer_id
     })
   } catch (error) {
     console.error('Get user error:', error)
@@ -513,9 +563,28 @@ router.get('/suppliers', authenticateToken, async (req, res) => {
       .select('id, username, company_name, created_by')
       .eq('role', 'user')
 
-    // Customers can only see suppliers they created
+    // Customers can only see suppliers they created OR suppliers their admin has access to
     if (req.user.role === 'customer') {
-      query = query.eq('created_by', req.user.id)
+      // If user is a customer user (has customer_id), get suppliers from their admin
+      let customerId = req.user.id
+      if (req.user.customer_id) {
+        customerId = req.user.customer_id
+      }
+      
+      // Get suppliers connected to this customer via customer_suppliers
+      const { data: connections } = await supabaseAdmin
+        .from('customer_suppliers')
+        .select('supplier_id')
+        .eq('customer_id', customerId)
+        .eq('status', 'active')
+      
+      const supplierIds = connections?.map(c => c.supplier_id) || []
+      
+      if (supplierIds.length === 0) {
+        return res.json([])
+      }
+      
+      query = query.in('id', supplierIds)
     }
     // Admins see all suppliers
 
@@ -539,28 +608,117 @@ router.get('/users', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Bu işlem için yetki gerekli.' })
     }
 
-    let query = supabaseAdmin
-      .from('profiles')
-      .select('id, username, role, company_name, created_by, created_at')
-      .order('created_at', { ascending: false })
+    let data
 
-    // Customers can only see users they created
+    // Customers see suppliers they are connected with via customer_suppliers table
     if (req.user.role === 'customer') {
-      console.log('🔍 Customer filter: created_by =', req.user.id)
-      query = query.eq('created_by', req.user.id)
-    }
-    // Admins see all users
+      console.log('🔍 Customer filter: getting suppliers from customer_suppliers')
+      
+      // Determine which customer ID to use
+      let customerId = req.user.id
+      if (req.user.customer_id) {
+        // If user is a customer user, use their admin's ID
+        customerId = req.user.customer_id
+      }
+      
+      // Get supplier IDs from customer_suppliers where customer is the current user or their admin
+      const { data: connections, error: connError } = await supabaseAdmin
+        .from('customer_suppliers')
+        .select('supplier_id')
+        .eq('customer_id', customerId)
+        .eq('status', 'active')
 
-    const { data, error } = await query
+      if (connError) throw connError
+
+      const supplierIds = connections?.map(c => c.supplier_id) || []
+      
+      if (supplierIds.length === 0) {
+        console.log('📊 No suppliers found for customer')
+        return res.json([])
+      }
+
+      // Get profiles for these suppliers
+      const { data: profiles, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, role, company_name, created_by, created_at')
+        .in('id', supplierIds)
+        .order('created_at', { ascending: false })
+
+      if (profileError) throw profileError
+      data = profiles
+    } else {
+      // Admins see all users with plan info
+      const { data: profiles, error } = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, role, company_name, created_by, created_at, plan_type, plan_start_date, is_customer_admin')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      data = profiles
+    }
     
     console.log('📊 Query result count:', data?.length)
     console.log('📊 Sample data:', data?.slice(0, 2))
 
-    if (error) throw error
-
     res.json(data)
   } catch (error) {
     console.error('Get users error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Update customer plan (admin only)
+router.patch('/customers/:id/plan', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Bu işlem için admin yetkisi gerekli.' })
+    }
+
+    const { plan_type } = req.body
+    const customerId = req.params.id
+
+    if (!plan_type || !['starter', 'business'].includes(plan_type)) {
+      return res.status(400).json({ error: 'Geçerli bir plan tipi seçiniz (starter veya business).' })
+    }
+
+    // Verify this is a customer account
+    const { data: customer, error: fetchError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, plan_type')
+      .eq('id', customerId)
+      .single()
+
+    if (fetchError || !customer) {
+      return res.status(404).json({ error: 'Müşteri bulunamadı.' })
+    }
+
+    if (customer.role !== 'customer') {
+      return res.status(400).json({ error: 'Bu işlem sadece müşteri hesapları için geçerlidir.' })
+    }
+
+    // Update plan - only set plan_start_date if plan is changing
+    const updateData = { plan_type }
+    if (customer.plan_type !== plan_type) {
+      updateData.plan_start_date = new Date().toISOString()
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update(updateData)
+      .eq('id', customerId)
+
+    if (updateError) {
+      console.error('Update plan error:', updateError)
+      throw updateError
+    }
+
+    res.json({ 
+      message: 'Plan başarıyla güncellendi.',
+      plan_type,
+      plan_start_date: updateData.plan_start_date
+    })
+  } catch (error) {
+    console.error('Update customer plan error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })
@@ -700,6 +858,645 @@ router.post('/refresh', async (req, res) => {
     })
   } catch (error) {
     console.error('Refresh error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Validate invite code (no authentication required)
+router.post('/validate-invite', async (req, res) => {
+  try {
+    const { invite_code } = req.body
+
+    if (!invite_code) {
+      return res.status(400).json({ error: 'Davet kodu gerekli.' })
+    }
+
+    // Find customer by invite code
+    const { data: customer, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, company_name, user_type')
+      .eq('invite_code', invite_code)
+      .eq('user_type', 'customer')
+      .single()
+
+    if (error || !customer) {
+      console.log('Invalid invite code:', invite_code)
+      return res.status(404).json({ error: 'Davet kodu geçersiz.' })
+    }
+
+    res.json({
+      valid: true,
+      customer: {
+        username: customer.username,
+        company_name: customer.company_name
+      }
+    })
+  } catch (error) {
+    console.error('Validate invite error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Accept supplier invite (supplier connects to customer via invite code)
+router.post('/accept-invite', authenticateToken, async (req, res) => {
+  try {
+    const { invite_code } = req.body
+
+    if (!invite_code) {
+      return res.status(400).json({ error: 'Davet kodu gerekli.' })
+    }
+
+    // Check if user is a supplier
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('user_type')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.user_type !== 'supplier') {
+      return res.status(403).json({ error: 'Sadece tedarikçiler davet kodunu kullanabilir.' })
+    }
+
+    // Call Supabase function to accept invite
+    console.log('Accepting invite:', { invite_code, supplier_id: req.user.id })
+    const { data, error } = await supabaseAdmin.rpc('accept_supplier_invite', {
+      p_invite_code: invite_code
+    })
+
+    if (error) {
+      console.error('Accept invite RPC error:', error)
+      return res.status(400).json({ error: 'Davet kodu kabul edilemedi: ' + error.message })
+    }
+
+    console.log('RPC result:', data)
+
+    if (!data || !data.success) {
+      return res.status(400).json({ error: data?.error || 'Davet kodu geçersiz.' })
+    }
+
+    res.json({
+      message: 'Müşteri ile bağlantı kuruldu.',
+      customer: data.customer
+    })
+  } catch (error) {
+    console.error('Accept invite error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Get my customers (for suppliers)
+router.get('/my-customers', authenticateToken, async (req, res) => {
+  try {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('user_type')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.user_type !== 'supplier') {
+      return res.status(403).json({ error: 'Sadece tedarikçiler müşterilerini görebilir.' })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('customer_suppliers')
+      .select('*')
+      .eq('supplier_id', req.user.id)
+      .eq('status', 'active')
+
+    if (error) {
+      console.error('Get customers error:', error)
+      throw error
+    }
+
+    res.json(data || [])
+  } catch (error) {
+    console.error('Get customers error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Get my suppliers (for customers)
+router.get('/my-suppliers', authenticateToken, async (req, res) => {
+  try {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('user_type')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.user_type !== 'customer') {
+      return res.status(403).json({ error: 'Sadece müşteriler tedarikçilerini görebilir.' })
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('customer_suppliers')
+      .select('*')
+      .eq('customer_id', req.user.id)
+      .eq('status', 'active')
+
+    if (error) {
+      console.error('Get suppliers error:', error)
+      throw error
+    }
+
+    res.json(data || [])
+  } catch (error) {
+    console.error('Get suppliers error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Remove supplier from customer's list (customer only - breaks the connection)
+router.delete('/suppliers/:id', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Bu işlem sadece müşteriler için geçerlidir.' })
+    }
+
+    const supplierId = req.params.id
+    
+    // Determine which customer ID to use
+    let customerId = req.user.id
+    if (req.user.customer_id) {
+      // If user is a customer user, they cannot remove suppliers (only admin can)
+      return res.status(403).json({ error: 'Sadece müşteri adminleri tedarikçi çıkarabilir.' })
+    }
+
+    // Update customer_suppliers table to set status as 'inactive'
+    const { error: updateError } = await supabaseAdmin
+      .from('customer_suppliers')
+      .update({ status: 'inactive' })
+      .eq('customer_id', customerId)
+      .eq('supplier_id', supplierId)
+
+    if (updateError) {
+      console.error('Remove supplier error:', updateError)
+      throw updateError
+    }
+
+    res.json({ message: 'Tedarikçi listenizden çıkarıldı.' })
+  } catch (error) {
+    console.error('Remove supplier error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// ============= CUSTOMER USERS ENDPOINTS =============
+
+// Get customer's user invite code (customer admin only)
+router.get('/my-user-invite-code', authenticateToken, async (req, res) => {
+  try {
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('user_invite_code, is_customer_admin')
+      .eq('id', req.user.id)
+      .single()
+
+    if (error) throw error
+
+    if (!profile.is_customer_admin) {
+      return res.status(403).json({ error: 'Sadece müşteri adminleri davet kodu görebilir.' })
+    }
+
+    res.json({ invite_code: profile.user_invite_code })
+  } catch (error) {
+    console.error('Get user invite code error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Validate user invite code (no authentication required)
+router.post('/validate-user-invite', async (req, res) => {
+  try {
+    const { invite_code } = req.body
+
+    if (!invite_code) {
+      return res.status(400).json({ error: 'Davet kodu gerekli.' })
+    }
+
+    // Find customer by user invite code
+    const { data: customer, error } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, company_name, user_type')
+      .eq('user_invite_code', invite_code)
+      .eq('role', 'customer')
+      .eq('is_customer_admin', true)
+      .single()
+
+    if (error || !customer) {
+      console.log('Invalid user invite code:', invite_code)
+      return res.status(404).json({ error: 'Davet kodu geçersiz.' })
+    }
+
+    res.json({
+      valid: true,
+      customer: {
+        username: customer.username,
+        company_name: customer.company_name
+      }
+    })
+  } catch (error) {
+    console.error('Validate user invite error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Accept user invite (customer user joins customer account)
+router.post('/accept-user-invite', authenticateToken, async (req, res) => {
+  try {
+    const { invite_code } = req.body
+
+    if (!invite_code) {
+      return res.status(400).json({ error: 'Davet kodu gerekli.' })
+    }
+
+    // Check if user is a customer
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('user_type, role, customer_id, is_customer_admin')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.user_type !== 'customer' || profile.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece müşteriler davet kodunu kullanabilir.' })
+    }
+
+    // Check if user is already a customer admin (they can't join another customer)
+    if (profile.is_customer_admin) {
+      return res.status(400).json({ error: 'Müşteri adminleri başka bir hesaba katılamaz.' })
+    }
+
+    // Check if user is already connected to a customer
+    if (profile.customer_id) {
+      // Get the customer they're connected to
+      const { data: existingCustomer } = await supabaseAdmin
+        .from('profiles')
+        .select('username, company_name, user_invite_code')
+        .eq('id', profile.customer_id)
+        .single()
+      
+      // If trying to join the same customer, return success
+      if (existingCustomer && existingCustomer.user_invite_code === invite_code) {
+        return res.json({
+          message: 'Zaten bu müşteri hesabına bağlısınız.',
+          customer: {
+            id: profile.customer_id,
+            username: existingCustomer.username,
+            company_name: existingCustomer.company_name
+          }
+        })
+      }
+      
+      return res.status(400).json({ 
+        error: `Zaten "${existingCustomer?.company_name || existingCustomer?.username}" hesabına bağlısınız. Önce o hesaptan ayrılmalısınız.` 
+      })
+    }
+
+    // Call Supabase function to accept invite
+    console.log('Accepting user invite:', { invite_code, user_id: req.user.id })
+    const { data, error } = await supabaseAdmin.rpc('accept_user_invite', {
+      p_invite_code: invite_code
+    })
+
+    if (error) {
+      console.error('Accept user invite RPC error:', error)
+      return res.status(400).json({ error: 'Davet kodu kabul edilemedi: ' + error.message })
+    }
+
+    console.log('RPC result:', data)
+
+    if (!data || !data.success) {
+      return res.status(400).json({ error: data?.error || 'Davet kodu geçersiz.' })
+    }
+
+    res.json({
+      message: 'Müşteri hesabına başarıyla katıldınız.',
+      customer: data.customer
+    })
+  } catch (error) {
+    console.error('Accept user invite error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Get customer's users (all customers can view, only admin can modify)
+router.get('/my-customer-users', authenticateToken, async (req, res) => {
+  try {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('role, customer_id, is_customer_admin')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.role !== 'customer') {
+      return res.status(403).json({ error: 'Bu işlem sadece müşteriler için geçerlidir.' })
+    }
+
+    // Determine which customer's users to show
+    let customerId = req.user.id
+    if (profile.customer_id) {
+      // If user is a customer user, show their admin's users
+      customerId = profile.customer_id
+    }
+
+    // Get the admin's own info first
+    const { data: adminProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, username, company_name, created_at')
+      .eq('id', customerId)
+      .single()
+
+    const { data: adminAuth } = await supabaseAdmin.auth.admin.getUserById(customerId)
+
+    const adminUser = {
+      ...adminProfile,
+      email: adminAuth?.user?.email,
+      joined_at: adminProfile.created_at, // Admin's join date is when they created the account
+      is_admin: true // Mark as admin
+    }
+
+    // Get users connected to this customer (davet ile eklenmiş kullanıcılar)
+    const { data: connections, error: connError } = await supabaseAdmin
+      .from('customer_users')
+      .select('user_id, joined_at, status')
+      .eq('customer_id', customerId)
+      .eq('status', 'active')
+
+    if (connError) throw connError
+
+    let invitedUsers = []
+    if (connections && connections.length > 0) {
+      // Get user profiles (these are customer users who joined via invite)
+      const userIds = connections.map(c => c.user_id)
+      const { data: users, error: usersError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, company_name, created_at')
+        .in('id', userIds)
+
+      if (usersError) throw usersError
+
+      // Get auth emails and combine with join date
+      invitedUsers = await Promise.all(
+        users.map(async (user) => {
+          const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(user.id)
+          const connection = connections.find(c => c.user_id === user.id)
+          return {
+            ...user,
+            email: authUser?.user?.email,
+            joined_at: connection?.joined_at, // When they joined this customer account
+            is_admin: false
+          }
+        })
+      )
+    }
+
+    // Combine admin and invited users (admin first)
+    const allUsers = [adminUser, ...invitedUsers]
+
+    res.json(allUsers)
+  } catch (error) {
+    console.error('Get customer users error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Remove user from customer account (customer admin only)
+router.delete('/customer-users/:id', authenticateToken, async (req, res) => {
+  try {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('is_customer_admin, role')
+      .eq('id', req.user.id)
+      .single()
+
+    if (!profile || profile.role !== 'customer' || !profile.is_customer_admin) {
+      return res.status(403).json({ error: 'Sadece müşteri adminleri kullanıcı çıkarabilir.' })
+    }
+
+    const userId = req.params.id
+
+    // Update customer_users to set status as inactive
+    const { error: updateError } = await supabaseAdmin
+      .from('customer_users')
+      .update({ status: 'inactive' })
+      .eq('customer_id', req.user.id)
+      .eq('user_id', userId)
+
+    if (updateError) throw updateError
+
+    // Update user's customer_id to null
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .update({ customer_id: null })
+      .eq('id', userId)
+
+    if (profileError) throw profileError
+
+    res.json({ message: 'Kullanıcı hesaptan çıkarıldı.' })
+  } catch (error) {
+    console.error('Remove customer user error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Get customer usage statistics (for dashboard)
+router.get('/my-usage-stats', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'customer') {
+      // Customer usage stats
+      let customerId = req.user.id
+      if (req.user.customer_id) {
+        customerId = req.user.customer_id
+      }
+
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('plan_type, plan_start_date')
+        .eq('id', customerId)
+        .single()
+
+      if (profileError) throw profileError
+
+      const planType = profile.plan_type || 'starter'
+
+      const planLimits = {
+        starter: {
+          users: 3,
+          suppliers: 10,
+          rfq_per_month: 10,
+          storage_gb: 1
+        },
+        business: {
+          users: 10,
+          suppliers: 40,
+          rfq_per_month: 100,
+          storage_gb: 10
+        }
+      }
+
+      const limits = planLimits[planType]
+
+      const { count: userCount } = await supabaseAdmin
+        .from('customer_users')
+        .select('*', { count: 'exact', head: true })
+        .eq('customer_id', customerId)
+        .eq('status', 'active')
+
+      const { count: supplierCount } = await supabaseAdmin
+        .from('customer_suppliers')
+        .select('*', { count: 'exact', head: true })
+        .eq('customer_id', customerId)
+        .eq('status', 'active')
+
+      const startOfMonth = new Date()
+      startOfMonth.setDate(1)
+      startOfMonth.setHours(0, 0, 0, 0)
+
+      let creatorIds = [customerId]
+      const { data: customerUsers } = await supabaseAdmin
+        .from('customer_users')
+        .select('user_id')
+        .eq('customer_id', customerId)
+        .eq('status', 'active')
+      
+      if (customerUsers && customerUsers.length > 0) {
+        creatorIds.push(...customerUsers.map(u => u.user_id))
+      }
+
+      const { count: rfqCount } = await supabaseAdmin
+        .from('projects')
+        .select('*', { count: 'exact', head: true })
+        .in('created_by', creatorIds)
+        .gte('created_at', startOfMonth.toISOString())
+
+      // Calculate storage used
+      const { data: files, error: filesError } = await supabaseAdmin
+        .from('project_files')
+        .select('file_size, project:projects!inner(created_by)')
+        .in('project.created_by', creatorIds)
+        .eq('is_active', true)
+
+      if (filesError) {
+        console.error('Storage calculation error:', filesError)
+      }
+
+      const totalStorageBytes = files?.reduce((sum, f) => sum + (f.file_size || 0), 0) || 0
+      const storageUsedGB = totalStorageBytes / (1024 * 1024 * 1024)
+
+      res.json({
+        plan_type: planType,
+        plan_start_date: profile.plan_start_date,
+        limits,
+        usage: {
+          users: userCount || 0,
+          suppliers: supplierCount || 0,
+          rfq_this_month: rfqCount || 0,
+          storage_gb: parseFloat(storageUsedGB.toFixed(2))
+        }
+      })
+    } else if (req.user.role === 'supplier' || req.user.role === 'user') {
+      // Supplier usage stats - grouped by customer
+      const { data: connections, error: connectionsError } = await supabaseAdmin
+        .from('customer_suppliers')
+        .select('customer_id, customer:profiles!customer_suppliers_customer_id_fkey(username, plan_type)')
+        .eq('supplier_id', req.user.id)
+        .eq('status', 'active')
+
+      if (connectionsError) throw connectionsError
+
+      const stats = []
+
+      for (const conn of connections) {
+        const customerId = conn.customer_id
+        const planType = conn.customer?.plan_type || 'starter'
+
+        const planLimits = {
+          starter: {
+            users: 3,
+            suppliers: 10,
+            rfq_per_month: 10,
+            storage_gb: 1
+          },
+          business: {
+            users: 10,
+            suppliers: 40,
+            rfq_per_month: 100,
+            storage_gb: 10
+          }
+        }
+
+        const limits = planLimits[planType]
+
+        // Count users in customer account
+        const { count: userCount } = await supabaseAdmin
+          .from('customer_users')
+          .select('*', { count: 'exact', head: true })
+          .eq('customer_id', customerId)
+          .eq('status', 'active')
+
+        // Count suppliers in customer account
+        const { count: supplierCount } = await supabaseAdmin
+          .from('customer_suppliers')
+          .select('*', { count: 'exact', head: true })
+          .eq('customer_id', customerId)
+          .eq('status', 'active')
+
+        // Count RFQs this month
+        const startOfMonth = new Date()
+        startOfMonth.setDate(1)
+        startOfMonth.setHours(0, 0, 0, 0)
+
+        let creatorIds = [customerId]
+        const { data: customerUsers } = await supabaseAdmin
+          .from('customer_users')
+          .select('user_id')
+          .eq('customer_id', customerId)
+          .eq('status', 'active')
+        
+        if (customerUsers && customerUsers.length > 0) {
+          creatorIds.push(...customerUsers.map(u => u.user_id))
+        }
+
+        const { count: rfqCount } = await supabaseAdmin
+          .from('projects')
+          .select('*', { count: 'exact', head: true })
+          .in('created_by', creatorIds)
+          .gte('created_at', startOfMonth.toISOString())
+
+        // Calculate storage
+        const { data: files, error: filesError } = await supabaseAdmin
+          .from('project_files')
+          .select('file_size, project:projects!inner(created_by)')
+          .in('project.created_by', creatorIds)
+          .eq('is_active', true)
+
+        if (filesError) {
+          console.error('Storage calculation error:', filesError)
+        }
+
+        const totalStorageBytes = files?.reduce((sum, f) => sum + (f.file_size || 0), 0) || 0
+        const storageUsedGB = totalStorageBytes / (1024 * 1024 * 1024)
+
+        stats.push({
+          customer_id: customerId,
+          customer_name: conn.customer?.username || 'Bilinmeyen',
+          plan_type: planType,
+          limits,
+          usage: {
+            users: userCount || 0,
+            suppliers: supplierCount || 0,
+            rfq_this_month: rfqCount || 0,
+            storage_gb: parseFloat(storageUsedGB.toFixed(2))
+          }
+        })
+      }
+
+      res.json({ customers: stats })
+    } else {
+      return res.status(403).json({ error: 'Bu işlem sadece müşteriler ve tedarikçiler için geçerlidir.' })
+    }
+  } catch (error) {
+    console.error('Get usage stats error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })

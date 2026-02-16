@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   LogOut, Box, Clock, CheckCircle, 
-  Eye, FileBox, Calendar, ChevronRight, Building2, Send
+  Eye, FileBox, Calendar, ChevronRight, Building2, Send, Users, Key, Plus
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
@@ -12,11 +12,25 @@ import './Dashboard.css'
 export default function UserDashboard() {
   const { user, token, logout } = useAuth()
   const [projects, setProjects] = useState([])
+  const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingCustomers, setLoadingCustomers] = useState(false)
   const [filter, setFilter] = useState('pending')
+  const [pendingQuotationsCount, setPendingQuotationsCount] = useState(0)
+  const [inviteCode, setInviteCode] = useState('')
+  const [joiningCustomer, setJoiningCustomer] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [showInviteSection, setShowInviteSection] = useState(false)
+  
+  // Usage stats
+  const [usageStats, setUsageStats] = useState(null)
+  const [loadingStats, setLoadingStats] = useState(true)
 
   useEffect(() => {
     fetchProjects()
+    fetchPendingQuotationsCount()
+    fetchCustomers()
+    fetchUsageStats()
   }, [])
 
   const fetchProjects = async () => {
@@ -32,6 +46,85 @@ export default function UserDashboard() {
       console.error('Fetch projects error:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchPendingQuotationsCount = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/projects/quotations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const pendingCount = data.filter(q => q.status === 'pending').length
+        setPendingQuotationsCount(pendingCount)
+      }
+    } catch (error) {
+      console.error('Fetch quotations error:', error)
+    }
+  }
+
+  const fetchCustomers = async () => {
+    setLoadingCustomers(true)
+    try {
+      const res = await fetch(`${API_URL}/api/auth/my-customers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCustomers(data)
+      }
+    } catch (error) {
+      console.error('Fetch customers error:', error)
+    } finally {
+      setLoadingCustomers(false)
+    }
+  }
+
+  const fetchUsageStats = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/my-usage-stats`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setUsageStats(data)
+      }
+    } catch (error) {
+      console.error('Fetch usage stats error:', error)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+
+  const handleJoinCustomer = async (e) => {
+    e.preventDefault()
+    setInviteError('')
+    setJoiningCustomer(true)
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/accept-invite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ invite_code: inviteCode })
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Davet kodu kabul edilemedi')
+      }
+
+      alert(`${data.customer.company_name || data.customer.username} ile bağlantı kuruldu!`)
+      setInviteCode('')
+      fetchCustomers() // Refresh customer list
+    } catch (err) {
+      setInviteError(err.message)
+    } finally {
+      setJoiningCustomer(false)
     }
   }
 
@@ -61,10 +154,20 @@ export default function UserDashboard() {
           <Link to="/quotations" className="nav-item">
             <Send size={20} />
             <span>Teklifler</span>
+            {pendingQuotationsCount > 0 && (
+              <span className="nav-badge">{pendingQuotationsCount}</span>
+            )}
           </Link>
           <Link to="/dashboard" className="nav-item active">
             <FileBox size={20} />
             <span>İşlerim</span>
+          </Link>
+          <Link to="/customers" className="nav-item">
+            <Users size={20} />
+            <span>Müşterilerim</span>
+            {customers.length > 0 && (
+              <span className="nav-badge-info">{customers.length}</span>
+            )}
           </Link>
         </nav>
 
@@ -114,6 +217,214 @@ export default function UserDashboard() {
               <span className="stat-label">Tamamlanan</span>
             </div>
           </div>
+        </div>
+
+        {/* Plan Usage Stats - Per Customer */}
+        {!loadingStats && usageStats?.customers && usageStats.customers.length > 0 && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ 
+              fontSize: '1rem', 
+              fontWeight: '600', 
+              marginBottom: '1rem',
+              color: 'var(--text-primary)'
+            }}>
+              Müşteri Planları ve Kullanım
+            </h3>
+            {usageStats.customers.map((customerStat) => (
+              <div 
+                key={customerStat.customer_id}
+                style={{
+                  background: 'var(--card-bg)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '12px',
+                  padding: '1.5rem',
+                  marginBottom: '1rem'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>
+                      {customerStat.plan_type === 'business' ? '🏢' : '⚡'}
+                    </span>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: '600' }}>
+                        {customerStat.customer_name}
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {customerStat.plan_type === 'business' ? 'Business Plan' : 'Starter Plan'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                  {/* Users */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Kullanıcı</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+                        {customerStat.usage.users}/{customerStat.limits.users}
+                      </span>
+                    </div>
+                    <div style={{ 
+                      height: '6px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '3px', 
+                      overflow: 'hidden' 
+                    }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${Math.min((customerStat.usage.users / customerStat.limits.users) * 100, 100)}%`,
+                        background: customerStat.usage.users >= customerStat.limits.users ? '#ef4444' : '#3b82f6',
+                        transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Suppliers */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Tedarikçi</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+                        {customerStat.usage.suppliers}/{customerStat.limits.suppliers}
+                      </span>
+                    </div>
+                    <div style={{ 
+                      height: '6px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '3px', 
+                      overflow: 'hidden' 
+                    }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${Math.min((customerStat.usage.suppliers / customerStat.limits.suppliers) * 100, 100)}%`,
+                        background: customerStat.usage.suppliers >= customerStat.limits.suppliers ? '#ef4444' : '#10b981',
+                        transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* RFQ This Month */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>RFQ (Ay)</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+                        {customerStat.usage.rfq_this_month}/{customerStat.limits.rfq_per_month}
+                      </span>
+                    </div>
+                    <div style={{ 
+                      height: '6px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '3px', 
+                      overflow: 'hidden' 
+                    }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${Math.min((customerStat.usage.rfq_this_month / customerStat.limits.rfq_per_month) * 100, 100)}%`,
+                        background: customerStat.usage.rfq_this_month >= customerStat.limits.rfq_per_month ? '#ef4444' : '#f59e0b',
+                        transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Storage */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Depolama</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+                        {customerStat.usage.storage_gb}/{customerStat.limits.storage_gb} GB
+                      </span>
+                    </div>
+                    <div style={{ 
+                      height: '6px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '3px', 
+                      overflow: 'hidden' 
+                    }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${Math.min((customerStat.usage.storage_gb / customerStat.limits.storage_gb) * 100, 100)}%`,
+                        background: customerStat.usage.storage_gb >= customerStat.limits.storage_gb ? '#ef4444' : '#8b5cf6',
+                        transition: 'width 0.3s'
+                      }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Customer Connection Section */}
+        <div className="invite-section">
+          <button 
+            className="invite-toggle"
+            onClick={() => setShowInviteSection(!showInviteSection)}
+          >
+            <Key size={18} />
+            <span>Müşteri Bağlantısı</span>
+            <ChevronRight size={18} className={showInviteSection ? 'rotated' : ''} />
+          </button>
+          
+          {showInviteSection && (
+            <div className="invite-content">
+              <div className="invite-info">
+                <Building2 size={20} className="invite-icon" />
+                <div>
+                  <h3>Müşterilerinizle Bağlanın</h3>
+                  <p>Müşterinizden aldığınız davet kodunu girerek bağlantı kurun.</p>
+                </div>
+              </div>
+              
+              <form onSubmit={handleJoinCustomer} className="invite-form">
+                {inviteError && <div className="error-message">{inviteError}</div>}
+                <div className="form-row">
+                  <input
+                    type="text"
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    placeholder="INV-XXXXXXXXXXXX"
+                    className="invite-code-input"
+                    required
+                  />
+                  <button 
+                    type="submit" 
+                    className="btn-join-customer"
+                    disabled={joiningCustomer || !inviteCode}
+                  >
+                    <Plus size={18} />
+                    {joiningCustomer ? 'Bağlanıyor...' : 'Bağlan'}
+                  </button>
+                </div>
+              </form>
+
+              {loadingCustomers ? (
+                <div className="loading-suppliers">Yükleniyor...</div>
+              ) : customers.length > 0 ? (
+                <div className="connected-suppliers">
+                  <h4>Bağlı Müşteriler ({customers.length})</h4>
+                  <div className="suppliers-list">
+                    {customers.map(customer => (
+                      <div key={customer.relationship_id} className="supplier-item">
+                        <Building2 size={16} />
+                        <div className="supplier-details">
+                          <span className="supplier-name">{customer.customer_username}</span>
+                          <span className="supplier-company">{customer.customer_company}</span>
+                        </div>
+                        <span className="supplier-status active">Aktif</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="no-suppliers">
+                  <Users size={32} />
+                  <p>Henüz bağlı müşteriniz yok</p>
+                  <p className="hint">Müşterinizden davet kodu alarak bağlantı kurun</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="filter-tabs">

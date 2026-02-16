@@ -103,7 +103,34 @@ Kullanıcı Adı: admin
 - **Storage**: Supabase Storage
 - **Auth**: Supabase Auth + JWT
 - **3D**: Three.js + OpenCascade (WASM)
+- **Security**: Helmet.js, Rate Limiting, Sentry
 - **Deployment**: Railway (Backend) + Vercel (Frontend)
+
+## 🔒 Güvenlik & Monitoring
+
+- **Error Tracking**: Sentry.io
+- **Rate Limiting**: Express Rate Limit (DDoS koruması)
+- **Security Headers**: Helmet.js (OWASP standardları)
+- **Health Check**: `/api/health` endpoint
+- **Graceful Shutdown**: SIGTERM/SIGINT handling
+
+## 📜 Lisanslar & Yasal Uyarılar
+
+### 3D Viewer - Open CASCADE Technology
+Bu uygulama, 3D STEP dosyalarını görüntülemek için [Open CASCADE Technology (OCCT)](https://www.opencascade.com/) kullanmaktadır.
+
+- **Lisans**: [LGPL 2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
+- **Ticari Kullanım**: İzinli (LGPL koşulları altında)
+- **Kaynak Kodu**: https://github.com/donalffons/opencascade.js
+
+LGPL 2.1 lisansı gereği, OCCT kullanımı bildirilmiş ve kaynak koduna link verilmiştir. Bu yazılım, OCCT'yi değiştirilmemiş WASM binary olarak kullanmaktadır.
+
+### Proje Lisansı
+MIT License - Diğer tüm kodlar için
+
+---
+
+**⚠️ Production Checklist:** Canlıya almadan önce `PRODUCTION_CHECKLIST.md` dosyasını okuyun!
 
 ## 📝 API Endpoints
 
@@ -146,3 +173,10 @@ Kullanıcı Adı: admin
 ## 📄 Lisans
 
 MIT
+
+## 🔗 Bağlantılar
+
+- [Production Checklist](PRODUCTION_CHECKLIST.md)
+- [Deployment Guide](DEPLOYMENT.md)
+- [Open CASCADE Technology](https://www.opencascade.com/)
+

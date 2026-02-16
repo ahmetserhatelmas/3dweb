@@ -32,7 +32,11 @@ export const authenticateToken = async (req, res, next) => {
       email: user.email,
       username: profile.username,
       role: profile.role,
-      company_name: profile.company_name
+      user_type: profile.user_type,
+      company_name: profile.company_name,
+      invite_code: profile.invite_code,
+      is_customer_admin: profile.is_customer_admin,
+      customer_id: profile.customer_id
     }
     req.accessToken = token
     next()

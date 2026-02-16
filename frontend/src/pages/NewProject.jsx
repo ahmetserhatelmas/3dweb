@@ -13,6 +13,9 @@ import './NewProject.css'
 const getFileIcon = (type) => {
   switch (type) {
     case 'step': return <Box size={24} className="file-icon step" />
+    case 'dxf': return <Box size={24} className="file-icon dxf" />
+    case 'iges': return <Box size={24} className="file-icon iges" />
+    case 'parasolid': return <Box size={24} className="file-icon parasolid" />
     case 'pdf': return <FileText size={24} className="file-icon pdf" />
     case 'excel': return <FileSpreadsheet size={24} className="file-icon excel" />
     case 'image': return <Image size={24} className="file-icon image" />
@@ -27,16 +30,6 @@ export default function NewProject() {
   const [suppliers, setSuppliers] = useState([])
   const [currentStep, setCurrentStep] = useState(1)
   const [uploadProgress, setUploadProgress] = useState(0)
-  
-  // New supplier modal
-  const [showNewSupplierModal, setShowNewSupplierModal] = useState(false)
-  const [newSupplierForm, setNewSupplierForm] = useState({
-    username: '',
-    password: '',
-    company_name: '',
-    email: ''
-  })
-  const [savingSupplier, setSavingSupplier] = useState(false)
   
   const isCustomer = user?.role === 'customer'
   const basePath = isCustomer ? '/customer' : '/admin'
@@ -63,12 +56,19 @@ export default function NewProject() {
 
   const fetchSuppliers = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/auth/suppliers`, {
+      // Fetch connected suppliers from the new relationship table
+      const res = await fetch(`${API_URL}/api/auth/my-suppliers`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
         const data = await res.json()
-        setSuppliers(data)
+        // Transform the data to match the expected format
+        const transformedSuppliers = data.map(rel => ({
+          id: rel.supplier_id,
+          username: rel.supplier_username,
+          company_name: rel.supplier_company
+        }))
+        setSuppliers(transformedSuppliers)
       }
     } catch (error) {
       console.error('Fetch suppliers error:', error)
@@ -164,7 +164,7 @@ export default function NewProject() {
       const uploadedNewFiles = data.files.map(file => ({
         ...file,
         description: '',
-        quantity: file.file_type === 'step' ? '' : null, // Boş başlasın
+        quantity: ['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) ? '' : null, // CAD dosyaları için adet
         notes: ''
       }))
       
@@ -247,13 +247,14 @@ export default function NewProject() {
   }
 
   const handleSubmit = async () => {
-    // Validate STEP files have quantity
-    const stepFilesWithoutQuantity = uploadedFiles.filter(
-      file => file.file_type === 'step' && (!file.quantity || file.quantity < 1)
+    // Validate CAD files have quantity
+    const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+    const cadFilesWithoutQuantity = uploadedFiles.filter(
+      file => cadFileTypes.includes(file.file_type) && (!file.quantity || file.quantity < 1)
     )
     
-    if (stepFilesWithoutQuantity.length > 0) {
-      alert('Lütfen tüm STEP dosyaları için adet belirtin (en az 1).')
+    if (cadFilesWithoutQuantity.length > 0) {
+      alert('Lütfen tüm CAD dosyaları için adet belirtin (en az 1).')
       return
     }
     
@@ -367,7 +368,7 @@ export default function NewProject() {
           {currentStep === 1 && (
             <div className="form-section">
               <h2 className="section-title">Proje Dosyalarını Yükleyin</h2>
-              <p className="section-desc">STEP, PDF, Excel ve resim dosyalarını yükleyebilirsiniz.</p>
+              <p className="section-desc">STEP, DXF, IGES, Parasolid, PDF, Excel ve resim dosyalarını yükleyebilirsiniz.</p>
               
               <div 
                 className={`file-dropzone ${dragActive ? 'active' : ''} ${loading ? 'loading' : ''}`}
@@ -379,7 +380,7 @@ export default function NewProject() {
                 <input
                   type="file"
                   multiple
-                  accept=".step,.stp,.pdf,.xlsx,.xls,.jpg,.jpeg,.png"
+                  accept=".step,.stp,.dxf,.igs,.iges,.x_t,.x_b,.xmt_txt,.xmt_bin,.pdf,.xlsx,.xls,.jpg,.jpeg,.png"
                   onChange={handleFileSelect}
                   id="file-input"
                   hidden
@@ -390,7 +391,7 @@ export default function NewProject() {
                     {loading ? 'Yükleniyor...' : 'Dosyaları sürükleyin veya tıklayın'}
                   </span>
                   <span className="dropzone-hint">
-                    STEP, PDF, Excel, JPG, PNG (max 100MB)
+                    STEP, DXF, IGES, Parasolid, PDF, Excel, JPG, PNG (max 500MB)
                   </span>
                 </label>
                 {uploadProgress > 0 && (
@@ -449,7 +450,7 @@ export default function NewProject() {
                         />
                       </div>
                       
-                      {file.file_type === 'step' && (
+                      {['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && (
                         <div className="input-group input-small">
                           <label>Adet *</label>
                 <input
@@ -541,14 +542,6 @@ export default function NewProject() {
               <div className="suppliers-section">
                 <div className="suppliers-header">
                   <label>Tedarikçiler * (birden fazla seçebilirsiniz)</label>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-add-supplier"
-                    onClick={() => setShowNewSupplierModal(true)}
-                  >
-                    <UserPlus size={16} />
-                    Yeni Tedarikçi
-                  </button>
                 </div>
                 <div className="suppliers-grid">
                   {suppliers.map(supplier => (
@@ -568,7 +561,11 @@ export default function NewProject() {
                   ))}
                 </div>
                 {suppliers.length === 0 && (
-                  <p className="no-suppliers">Henüz tedarikçi eklenmemiş.</p>
+                  <div className="no-suppliers-box">
+                    <Users size={32} />
+                    <p>Henüz bağlı tedarikçiniz yok</p>
+                    <p className="hint">Dashboard'dan davet linkinizi paylaşarak tedarikçi ekleyebilirsiniz</p>
+                  </div>
                 )}
               </div>
 
@@ -603,12 +600,13 @@ export default function NewProject() {
                 onClick={() => {
                   // Step 2'den 3'e geçerken adet kontrolü yap
                   if (currentStep === 2) {
-                    const stepFilesWithoutQuantity = uploadedFiles.filter(
-                      file => file.file_type === 'step' && (!file.quantity || file.quantity < 1)
+                    const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+                    const cadFilesWithoutQuantity = uploadedFiles.filter(
+                      file => cadFileTypes.includes(file.file_type) && (!file.quantity || file.quantity < 1)
                     )
                     
-                    if (stepFilesWithoutQuantity.length > 0) {
-                      alert('Lütfen tüm STEP dosyaları için adet belirtin (en az 1).')
+                    if (cadFilesWithoutQuantity.length > 0) {
+                      alert('Lütfen tüm CAD dosyaları için adet belirtin (en az 1).')
                       return
                     }
                   }
@@ -636,93 +634,6 @@ export default function NewProject() {
           </div>
         </div>
       </main>
-
-      {/* New Supplier Modal */}
-      {showNewSupplierModal && (
-        <div className="modal-overlay" onClick={() => setShowNewSupplierModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>
-                <UserPlus size={20} />
-                Yeni Tedarikçi Ekle
-              </h2>
-              <button className="modal-close" onClick={() => setShowNewSupplierModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddNewSupplier} className="modal-body">
-              <div className="form-grid">
-                <div className="input-group input-full">
-                  <label>Firma Adı *</label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={newSupplierForm.company_name}
-                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, company_name: e.target.value }))}
-                    placeholder="Örn: ABC Makina"
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label>Kullanıcı Adı *</label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={newSupplierForm.username}
-                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, username: e.target.value }))}
-                    placeholder="tedarikci123"
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label>Email</label>
-                  <input
-                    type="email"
-                    className="input"
-                    value={newSupplierForm.email}
-                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="info@firma.com (opsiyonel)"
-                  />
-                </div>
-
-                <div className="input-group input-full">
-                  <label>Şifre *</label>
-                  <input
-                    type="password"
-                    className="input"
-                    value={newSupplierForm.password}
-                    onChange={(e) => setNewSupplierForm(prev => ({ ...prev, password: e.target.value }))}
-                    placeholder="En az 6 karakter"
-                    minLength={6}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowNewSupplierModal(false)}
-                  disabled={savingSupplier}
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={savingSupplier}
-                >
-                  {savingSupplier ? 'Ekleniyor...' : 'Ekle ve Projeye Ata'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
