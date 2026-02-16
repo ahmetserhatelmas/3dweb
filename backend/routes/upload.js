@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 import { v4 as uuidv4 } from 'uuid'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken } from '../middleware/supabaseAuth.js'
-import { uploadToR2, generateR2Key } from '../lib/r2Storage.js'
+import { uploadToR2, generateR2Key, generatePresignedUploadUrl } from '../lib/r2Storage.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -282,6 +282,54 @@ router.use((error, req, res, next) => {
     return res.status(400).json({ error: error.message })
   }
   next()
+})
+
+// NEW: Generate presigned URL via Cloudflare Worker (bypasses TLS issues)
+router.post('/presigned-url', authenticateToken, async (req, res) => {
+  try {
+    const { filename, contentType, projectId } = req.body
+    
+    if (!filename || !contentType) {
+      return res.status(400).json({ error: 'filename ve contentType gerekli' })
+    }
+    
+    // Generate unique R2 key
+    const tempId = projectId || uuidv4()
+    const ext = path.extname(filename)
+    const r2Key = `temp/${tempId}/${uuidv4()}${ext}`
+    
+    // Get upload URL from Cloudflare Worker
+    const workerUrl = process.env.R2_WORKER_URL || 'https://kunye-upload-worker.ahmetserhatlelmas-1cd.workers.dev'
+    const workerRes = await fetch(`${workerUrl}/upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filename,
+        contentType,
+        key: r2Key
+      })
+    })
+    
+    if (!workerRes.ok) {
+      throw new Error('Worker upload URL oluşturulamadı')
+    }
+    
+    const workerData = await workerRes.json()
+    
+    console.log('✅ Worker upload URL generated:', { key: r2Key, filename })
+    
+    res.json({
+      uploadUrl: workerData.uploadUrl,
+      publicUrl: workerData.publicUrl,
+      key: workerData.key,
+      filename
+    })
+  } catch (error) {
+    console.error('Presigned URL generation error:', error)
+    res.status(500).json({ error: 'Presigned URL oluşturulamadı' })
+  }
 })
 
 export default router

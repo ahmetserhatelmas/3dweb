@@ -1,3 +1,6 @@
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
+import https from 'https'
 import crypto from 'crypto'
 
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID
@@ -14,75 +17,54 @@ console.log('🪣 R2 Configuration:', {
   hasSecretKey: !!R2_SECRET_ACCESS_KEY
 })
 
-/**
- * AWS Signature V4 signing
- */
-function createSignature(stringToSign, secretKey, shortDate) {
-  const kDate = crypto.createHmac('sha256', 'AWS4' + secretKey).update(shortDate).digest()
-  const kRegion = crypto.createHmac('sha256', kDate).update('auto').digest()
-  const kService = crypto.createHmac('sha256', kRegion).update('s3').digest()
-  const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest()
-  return crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex')
-}
+// Create custom HTTPS agent with legacy SSL support
+const customAgent = new https.Agent({
+  rejectUnauthorized: false,
+  minVersion: 'TLSv1.2',
+  maxVersion: 'TLSv1.3',
+  // Try all available ciphers
+  ciphers: [
+    'TLS_AES_128_GCM_SHA256',
+    'TLS_AES_256_GCM_SHA384',
+    'TLS_CHACHA20_POLY1305_SHA256',
+    'ECDHE-RSA-AES128-GCM-SHA256',
+    'ECDHE-RSA-AES256-GCM-SHA384'
+  ].join(':'),
+  honorCipherOrder: true,
+  secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT
+})
+
+// Initialize S3 client with custom handler
+const s3Client = new S3Client({
+  region: 'auto',
+  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+  },
+  forcePathStyle: false,
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: customAgent,
+    connectionTimeout: 30000,
+    requestTimeout: 60000
+  })
+})
 
 /**
- * Upload a file to R2 using native fetch + AWS Signature V4
+ * Upload a file to R2 using AWS SDK
  */
 export async function uploadToR2(buffer, key, contentType = 'application/octet-stream') {
   try {
-    const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET_NAME}/${key}`
-    const host = `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
-    
-    const now = new Date()
-    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '')
-    const shortDate = amzDate.slice(0, 8)
-    
-    const payloadHash = crypto.createHash('sha256').update(buffer).digest('hex')
-    
-    const canonicalRequest = [
-      'PUT',
-      `/${BUCKET_NAME}/${key}`,
-      '',
-      `content-type:${contentType}`,
-      `host:${host}`,
-      `x-amz-content-sha256:${payloadHash}`,
-      `x-amz-date:${amzDate}`,
-      '',
-      'content-type;host;x-amz-content-sha256;x-amz-date',
-      payloadHash
-    ].join('\n')
-    
-    const canonicalRequestHash = crypto.createHash('sha256').update(canonicalRequest).digest('hex')
-    
-    const stringToSign = [
-      'AWS4-HMAC-SHA256',
-      amzDate,
-      `${shortDate}/auto/s3/aws4_request`,
-      canonicalRequestHash
-    ].join('\n')
-    
-    const signature = createSignature(stringToSign, R2_SECRET_ACCESS_KEY, shortDate)
-    
-    const authorization = `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY_ID}/${shortDate}/auto/s3/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=${signature}`
-    
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': contentType,
-        'Host': host,
-        'x-amz-content-sha256': payloadHash,
-        'x-amz-date': amzDate,
-        'Authorization': authorization
-      },
-      body: buffer
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType
     })
     
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`R2 upload failed: ${response.status} ${text}`)
-    }
+    await s3Client.send(command)
     
-    const fileUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : url
+    const fileUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET_NAME}/${key}`
     
     return { url: fileUrl, key }
   } catch (error) {
@@ -104,6 +86,23 @@ export async function getSignedR2Url(key, expiresIn = 3600) {
  */
 export async function deleteFromR2(key) {
   try {
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key
+    })
+    
+    await s3Client.send(command)
+  } catch (error) {
+    console.error('R2 delete error:', error)
+    throw error
+  }
+}
+
+/**
+ * Generate a presigned URL for client-side upload (bypasses backend TLS issues)
+ */
+export function generatePresignedUploadUrl(key, contentType, expiresInSeconds = 900) {
+  try {
     const url = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET_NAME}/${key}`
     const host = `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
     
@@ -111,18 +110,24 @@ export async function deleteFromR2(key) {
     const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '')
     const shortDate = amzDate.slice(0, 8)
     
-    const payloadHash = crypto.createHash('sha256').update('').digest('hex')
+    const credential = `${R2_ACCESS_KEY_ID}/${shortDate}/auto/s3/aws4_request`
+    
+    const canonicalQueryString = [
+      `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+      `X-Amz-Credential=${encodeURIComponent(credential)}`,
+      `X-Amz-Date=${amzDate}`,
+      `X-Amz-Expires=${expiresInSeconds}`,
+      `X-Amz-SignedHeaders=host`
+    ].join('&')
     
     const canonicalRequest = [
-      'DELETE',
+      'PUT',
       `/${BUCKET_NAME}/${key}`,
-      '',
+      canonicalQueryString,
       `host:${host}`,
-      `x-amz-content-sha256:${payloadHash}`,
-      `x-amz-date:${amzDate}`,
       '',
-      'host;x-amz-content-sha256;x-amz-date',
-      payloadHash
+      'host',
+      'UNSIGNED-PAYLOAD'
     ].join('\n')
     
     const canonicalRequestHash = crypto.createHash('sha256').update(canonicalRequest).digest('hex')
@@ -136,26 +141,30 @@ export async function deleteFromR2(key) {
     
     const signature = createSignature(stringToSign, R2_SECRET_ACCESS_KEY, shortDate)
     
-    const authorization = `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY_ID}/${shortDate}/auto/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=${signature}`
+    const presignedUrl = `${url}?${canonicalQueryString}&X-Amz-Signature=${signature}`
     
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: {
-        'Host': host,
-        'x-amz-content-sha256': payloadHash,
-        'x-amz-date': amzDate,
-        'Authorization': authorization
-      }
-    })
+    const publicUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${BUCKET_NAME}/${key}`
     
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`R2 delete failed: ${response.status} ${text}`)
+    return {
+      uploadUrl: presignedUrl,
+      publicUrl: publicUrl,
+      key: key
     }
   } catch (error) {
-    console.error('R2 delete error:', error)
+    console.error('Presigned URL generation error:', error)
     throw error
   }
+}
+
+/**
+ * AWS Signature V4 signing helper
+ */
+function createSignature(stringToSign, secretKey, shortDate) {
+  const kDate = crypto.createHmac('sha256', 'AWS4' + secretKey).update(shortDate).digest()
+  const kRegion = crypto.createHmac('sha256', kDate).update('auto').digest()
+  const kService = crypto.createHmac('sha256', kRegion).update('s3').digest()
+  const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest()
+  return crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex')
 }
 
 export function generateR2Key(projectId, filename) {

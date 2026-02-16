@@ -135,38 +135,78 @@ export default function NewProject() {
     setUploadProgress(10)
     
     try {
-      const formData = new FormData()
-      newFiles.forEach(file => {
-        formData.append('files', file)
-      })
-
-      setUploadProgress(30)
-
-      const res = await fetch(`${API_URL}/api/upload/project-files`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      })
-
-      setUploadProgress(70)
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error)
-      }
-
-      const data = await res.json()
-      setTempFolder(data.temp_folder)
+      const uploadedNewFiles = []
+      const tempId = tempFolder || Date.now().toString()
+      setTempFolder(tempId)
       
-      // Add files with default values
-      const uploadedNewFiles = data.files.map(file => ({
-        ...file,
-        description: '',
-        quantity: ['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) ? '' : null, // CAD dosyaları için adet
-        notes: ''
-      }))
+      // Cloudflare Worker URL
+      const workerUrl = 'https://kunye-upload-worker.ahmetserhatelmas-14d.workers.dev'
+      
+      for (let i = 0; i < newFiles.length; i++) {
+        const file = newFiles[i]
+        const progress = ((i + 1) / newFiles.length) * 80 + 10
+        setUploadProgress(progress)
+        
+        // Generate key
+        const ext = file.name.substring(file.name.lastIndexOf('.'))
+        const key = `temp/${tempId}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}${ext}`
+        
+        // 1. Get upload URL from Worker
+        const workerRes = await fetch(`${workerUrl}/upload`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            key: key
+          })
+        })
+        
+        if (!workerRes.ok) {
+          throw new Error(`Worker URL alınamadı: ${file.name}`)
+        }
+        
+        const { uploadUrl, publicUrl } = await workerRes.json()
+        
+        // 2. Upload directly to Worker
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream'
+          },
+          body: file
+        })
+        
+        if (!uploadRes.ok) {
+          throw new Error(`Dosya yüklenemedi: ${file.name}`)
+        }
+        
+        // 3. Determine file type
+        const fileExt = ext.toLowerCase()
+        let fileType = 'other'
+        if (['.step', '.stp'].includes(fileExt)) fileType = 'step'
+        else if (fileExt === '.dxf') fileType = 'dxf'
+        else if (['.igs', '.iges'].includes(fileExt)) fileType = 'iges'
+        else if (['.x_t', '.x_b', '.xmt_txt', '.xmt_bin'].includes(fileExt)) fileType = 'parasolid'
+        else if (fileExt === '.pdf') fileType = 'pdf'
+        else if (['.xlsx', '.xls'].includes(fileExt)) fileType = 'excel'
+        else if (['.jpg', '.jpeg', '.png'].includes(fileExt)) fileType = 'image'
+        
+        // 4. Add to uploaded files list
+        uploadedNewFiles.push({
+          temp_path: key,
+          file_url: publicUrl,
+          file_name: file.name,
+          file_type: fileType,
+          file_size: file.size,
+          mime_type: file.type,
+          description: '',
+          quantity: ['step', 'dxf', 'iges', 'parasolid'].includes(fileType) ? '' : null,
+          notes: ''
+        })
+      }
       
       setUploadedFiles(prev => [...prev, ...uploadedNewFiles])
       setUploadProgress(100)
