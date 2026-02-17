@@ -1043,6 +1043,28 @@ router.delete('/suppliers/:id', authenticateToken, async (req, res) => {
 
 // ============= CUSTOMER USERS ENDPOINTS =============
 
+// Get customer's supplier invite code
+router.get('/my-invite-code', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece müşteriler tedarikçi davet edebilir' })
+    }
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('invite_code')
+      .eq('id', req.user.id)
+      .single()
+
+    if (error) throw error
+
+    res.json({ invite_code: profile.invite_code })
+  } catch (error) {
+    console.error('Get invite code error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
 // Get customer's user invite code (customer admin only)
 router.get('/my-user-invite-code', authenticateToken, async (req, res) => {
   try {

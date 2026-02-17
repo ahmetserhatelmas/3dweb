@@ -187,6 +187,7 @@ export default function NewProject() {
         const fileExt = ext.toLowerCase()
         let fileType = 'other'
         if (['.step', '.stp'].includes(fileExt)) fileType = 'step'
+        else if (fileExt === '.stl') fileType = 'stl'
         else if (fileExt === '.dxf') fileType = 'dxf'
         else if (['.igs', '.iges'].includes(fileExt)) fileType = 'iges'
         else if (['.x_t', '.x_b', '.xmt_txt', '.xmt_bin'].includes(fileExt)) fileType = 'parasolid'
@@ -203,7 +204,7 @@ export default function NewProject() {
           file_size: file.size,
           mime_type: file.type,
           description: '',
-          quantity: ['step', 'dxf', 'iges', 'parasolid'].includes(fileType) ? '' : null,
+          quantity: ['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(fileType) ? '' : null,
           notes: ''
         })
       }
@@ -408,7 +409,7 @@ export default function NewProject() {
           {currentStep === 1 && (
             <div className="form-section">
               <h2 className="section-title">Proje Dosyalarını Yükleyin</h2>
-              <p className="section-desc">STEP, DXF, IGES, Parasolid, PDF, Excel ve resim dosyalarını yükleyebilirsiniz.</p>
+              <p className="section-desc">STEP, STL, DXF, IGES, Parasolid, PDF, Excel ve resim dosyalarını yükleyebilirsiniz.</p>
               
               <div 
                 className={`file-dropzone ${dragActive ? 'active' : ''} ${loading ? 'loading' : ''}`}
@@ -420,7 +421,7 @@ export default function NewProject() {
                 <input
                   type="file"
                   multiple
-                  accept=".step,.stp,.dxf,.igs,.iges,.x_t,.x_b,.xmt_txt,.xmt_bin,.pdf,.xlsx,.xls,.jpg,.jpeg,.png"
+                  accept=".step,.stp,.stl,.dxf,.igs,.iges,.x_t,.x_b,.xmt_txt,.xmt_bin,.pdf,.xlsx,.xls,.jpg,.jpeg,.png"
                   onChange={handleFileSelect}
                   id="file-input"
                   hidden
@@ -431,7 +432,7 @@ export default function NewProject() {
                     {loading ? 'Yükleniyor...' : 'Dosyaları sürükleyin veya tıklayın'}
                   </span>
                   <span className="dropzone-hint">
-                    STEP, DXF, IGES, Parasolid, PDF, Excel, JPG, PNG (max 500MB)
+                    STEP, STL, DXF, IGES, Parasolid, PDF, Excel, JPG, PNG (max 500MB)
                   </span>
                 </label>
                 {uploadProgress > 0 && (

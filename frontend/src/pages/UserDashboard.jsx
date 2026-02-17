@@ -220,7 +220,7 @@ export default function UserDashboard() {
         </div>
 
         {/* Plan Usage Stats - Per Customer */}
-        {!loadingStats && usageStats?.customers && usageStats.customers.length > 0 && (
+        {usageStats?.customers && usageStats.customers.length > 0 && (
           <div style={{ marginBottom: '1.5rem' }}>
             <h3 style={{ 
               fontSize: '1rem', 

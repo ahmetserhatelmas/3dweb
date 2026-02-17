@@ -197,7 +197,7 @@ export default function CustomerDashboard() {
         </div>
 
         {/* Plan Usage Stats */}
-        {!loadingStats && usageStats && (
+        {usageStats && (
           <div style={{
             background: 'var(--card-bg)',
             border: '1px solid var(--border-color)',
@@ -318,77 +318,6 @@ export default function CustomerDashboard() {
             </div>
           </div>
         )}
-
-        {/* Supplier Invitation Section */}
-        <div className="invite-section">
-          <button 
-            className="invite-toggle"
-            onClick={() => setShowInviteSection(!showInviteSection)}
-          >
-            <LinkIcon size={18} />
-            <span>Tedarikçi Davet Et</span>
-            <ChevronRight size={18} className={showInviteSection ? 'rotated' : ''} />
-          </button>
-          
-          {showInviteSection && (
-            <div className="invite-content">
-              <div className="invite-info">
-                <UserPlus size={20} className="invite-icon" />
-                <div>
-                  <h3>Tedarikçilerinizi Ekleyin</h3>
-                  <p>Aşağıdaki davet linkini tedarikçilerinizle paylaşın. Link'e tıklayan tedarikçiler otomatik olarak sizinle bağlanır.</p>
-                </div>
-              </div>
-              
-              <div className="invite-link-box">
-                <div className="invite-link-display">
-                  <input 
-                    type="text" 
-                    value={`${window.location.origin}/invite/${user?.invite_code}`}
-                    readOnly
-                    className="invite-link-input"
-                  />
-                  <button 
-                    className="btn-copy-invite"
-                    onClick={copyInviteLink}
-                  >
-                    {copiedInvite ? <Check size={18} /> : <Copy size={18} />}
-                    {copiedInvite ? 'Kopyalandı!' : 'Kopyala'}
-                  </button>
-                </div>
-                <p className="invite-hint">
-                  Bu link ile tedarikçileriniz sisteme kayıt olduktan sonra sizinle otomatik olarak bağlanır.
-                </p>
-              </div>
-
-              {loadingSuppliers ? (
-                <div className="loading-suppliers">Yükleniyor...</div>
-              ) : suppliers.length > 0 ? (
-                <div className="connected-suppliers">
-                  <h4>Bağlı Tedarikçiler ({suppliers.length})</h4>
-                  <div className="suppliers-list">
-                    {suppliers.map(supplier => (
-                      <div key={supplier.relationship_id} className="supplier-item">
-                        <Users size={16} />
-                        <div className="supplier-details">
-                          <span className="supplier-name">{supplier.supplier_username}</span>
-                          <span className="supplier-company">{supplier.supplier_company}</span>
-                        </div>
-                        <span className="supplier-status active">Aktif</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="no-suppliers">
-                  <Users size={32} />
-                  <p>Henüz bağlı tedarikçiniz yok</p>
-                  <p className="hint">Yukarıdaki linki paylaşarak tedarikçilerinizi ekleyin</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
 
         <div className="filter-tabs">
           <button 

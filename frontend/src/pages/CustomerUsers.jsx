@@ -280,7 +280,7 @@ export default function CustomerUsers() {
         )}
 
         {/* Plan Usage Stats */}
-        {!loadingStats && usageStats && (
+        {usageStats && (
           <div style={{
             background: 'var(--card-bg)',
             border: '1px solid var(--border-color)',

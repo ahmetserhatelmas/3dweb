@@ -34,11 +34,12 @@ const documentFilter = (req, file, cb) => {
   }
 }
 
-// Project files filter - STEP, PDF, Excel, images
+// Project files filter - STEP, STL, DXF, IGES, Parasolid, PDF, Excel, images
 const projectFileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase()
   const allowed = [
     '.step', '.stp',           // STEP
+    '.stl',                    // STL
     '.dxf',                    // DXF
     '.igs', '.iges',           // IGES
     '.x_t', '.x_b', '.xmt_txt', '.xmt_bin',  // Parasolid

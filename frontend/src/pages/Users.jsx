@@ -4,15 +4,23 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Users as UsersIcon, FileBox, 
-  Trash2, Building2, Mail, Shield, User as UserIcon, Edit2, Settings
+  Trash2, Building2, Mail, Shield, User as UserIcon, Edit2, Settings, UserPlus, Copy, Check,
+  ChevronRight, Link as LinkIcon
 } from 'lucide-react'
 import './Users.css'
 
 export default function Users() {
   const { user, token, logout } = useAuth()
   const [users, setUsers] = useState([])
+  const [suppliers, setSuppliers] = useState([])
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showInviteSection, setShowInviteSection] = useState(false)
+  const [inviteCode, setInviteCode] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [copiedInvite, setCopiedInvite] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -36,7 +44,49 @@ export default function Users() {
 
   useEffect(() => {
     fetchUsers()
+    if (isCustomer) {
+      fetchInviteCode()
+      fetchSuppliers()
+    }
   }, [])
+
+  const fetchSuppliers = async () => {
+    try {
+      setLoadingSuppliers(true)
+      const res = await fetch(`${API_URL}/api/auth/my-suppliers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSuppliers(data)
+      }
+    } catch (error) {
+      console.error('Fetch suppliers error:', error)
+    } finally {
+      setLoadingSuppliers(false)
+    }
+  }
+
+  const fetchInviteCode = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/auth/my-invite-code`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setInviteCode(data.invite_code)
+      }
+    } catch (error) {
+      console.error('Fetch invite code error:', error)
+    }
+  }
+
+  const copyInviteLink = () => {
+    const inviteLink = `${window.location.origin}/invite/${inviteCode}`
+    navigator.clipboard.writeText(inviteLink)
+    setCopiedInvite(true)
+    setTimeout(() => setCopiedInvite(false), 2000)
+  }
 
   const fetchUsers = async () => {
     try {
@@ -296,13 +346,181 @@ export default function Users() {
               {isCustomer ? 'Tedarikçilerinizi yönetin' : 'Sistem kullanıcılarını yönetin'}
             </p>
           </div>
-          {!isCustomer && (
-            <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-              <Plus size={20} />
-              Yeni Kullanıcı
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            {isCustomer && (
+              <button 
+                className="btn btn-primary" 
+                onClick={() => setShowInviteSection(!showInviteSection)}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <UserPlus size={20} />
+                Tedarikçi Davet Et
+              </button>
+            )}
+            {!isCustomer && (
+              <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                <Plus size={20} />
+                Yeni Kullanıcı
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Supplier Invitation Accordion (for customers only) */}
+        {isCustomer && inviteCode && (
+          <div className="invite-section" style={{ marginBottom: '1.5rem' }}>
+            <button 
+              className="invite-toggle"
+              onClick={() => {
+                console.log('Accordion clicked, current state:', showInviteSection)
+                setShowInviteSection(!showInviteSection)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '1rem 1.25rem',
+                background: 'var(--card-bg)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                fontSize: '1rem',
+                fontWeight: '500',
+                color: 'var(--text-primary)'
+              }}
+            >
+              <LinkIcon size={18} />
+              <span>Tedarikçilerinizi Ekleyin</span>
+              <ChevronRight 
+                size={18} 
+                style={{ 
+                  marginLeft: 'auto',
+                  transform: showInviteSection ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s'
+                }} 
+              />
+            </button>
+            
+            {showInviteSection && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '1.5rem',
+                background: 'var(--card-bg)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '12px'
+              }}>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                  <UserPlus size={24} style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
+                  <div>
+                    <h3 style={{ margin: 0, marginBottom: '0.5rem', fontSize: '1.125rem' }}>Davet Linki</h3>
+                    <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                      Aşağıdaki linki tedarikçilerinizle paylaşın. Link'e tıklayan tedarikçiler otomatik olarak sizinle bağlanır.
+                    </p>
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  <input 
+                    type="text" 
+                    value={`${window.location.origin}/invite/${inviteCode}`}
+                    readOnly
+                    style={{
+                      flex: 1,
+                      padding: '0.75rem',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px',
+                      fontSize: '0.875rem',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <button 
+                    onClick={copyInviteLink}
+                    className="btn btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  >
+                    {copiedInvite ? <Check size={16} /> : <Copy size={16} />}
+                    {copiedInvite ? 'Kopyalandı!' : 'Kopyala'}
+                  </button>
+                </div>
+                
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Bu link ile tedarikçileriniz sisteme kayıt olduktan sonra sizinle otomatik olarak bağlanır.
+                </p>
+
+                {/* Suppliers List */}
+                {loadingSuppliers ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                    Yükleniyor...
+                  </div>
+                ) : suppliers.length > 0 ? (
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <h4 style={{ margin: 0, marginBottom: '1rem', fontSize: '0.875rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                      Bağlı Tedarikçiler ({suppliers.length})
+                    </h4>
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                      {suppliers.map(supplier => (
+                        <div 
+                          key={supplier.relationship_id} 
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            padding: '0.75rem',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px'
+                          }}
+                        >
+                          <UsersIcon size={16} style={{ color: 'var(--primary-color)' }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: '500', fontSize: '0.875rem' }}>
+                              {supplier.supplier_username}
+                            </div>
+                            {supplier.supplier_company && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {supplier.supplier_company}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ 
+                            padding: '0.25rem 0.75rem', 
+                            fontSize: '0.75rem', 
+                            fontWeight: '500',
+                            background: 'rgba(34, 197, 94, 0.1)',
+                            color: '#22c55e',
+                            borderRadius: '12px'
+                          }}>
+                            Aktif
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ 
+                    marginTop: '1.5rem',
+                    textAlign: 'center',
+                    padding: '2rem',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px'
+                  }}>
+                    <UsersIcon size={32} style={{ color: 'var(--text-muted)', margin: '0 auto 0.5rem' }} />
+                    <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: '500' }}>
+                      Henüz bağlı tedarikçiniz yok
+                    </p>
+                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Yukarıdaki linki paylaşarak tedarikçilerinizi ekleyin
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {loading ? (
           <div className="loading-screen">

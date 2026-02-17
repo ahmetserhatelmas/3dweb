@@ -57,22 +57,41 @@ export default function DxfViewer({ fileUrl, fileName }) {
     directionalLight.position.set(1, 1, 1)
     scene.add(directionalLight)
 
-    // Load DXF
-    const loadDxf = async () => {
+    // Load DXF with retry logic
+    const loadDxf = async (retries = 3, delay = 1000) => {
       try {
         setLoading(true)
         setError(null)
 
-        const response = await fetch(fileUrl)
-        if (!response.ok) throw new Error('Dosya yüklenemedi')
-        
-        const dxfText = await response.text()
-        const parser = new DxfParser()
-        const dxf = parser.parseSync(dxfText)
+        // Retry logic for R2 CDN propagation
+        let lastError
+        let dxf
+        for (let i = 0; i < retries; i++) {
+          try {
+            const response = await fetch(fileUrl, { cache: 'no-cache' })
+            if (!response.ok) throw new Error('Dosya yüklenemedi')
+            
+            const dxfText = await response.text()
+            const parser = new DxfParser()
+            dxf = parser.parseSync(dxfText)
 
-        if (!dxf || !dxf.entities) {
-          throw new Error('DXF dosyası okunamadı')
+            if (!dxf || !dxf.entities) {
+              throw new Error('DXF dosyası okunamadı')
+            }
+
+            // Success - break retry loop
+            lastError = null
+            break
+          } catch (err) {
+            lastError = err
+            if (i < retries - 1) {
+              console.log(`DXF load attempt ${i + 1} failed, retrying in ${delay}ms...`)
+              await new Promise(resolve => setTimeout(resolve, delay))
+            }
+          }
         }
+
+        if (lastError) throw lastError
 
         // Create geometry from DXF entities
         const group = new THREE.Group()
