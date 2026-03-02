@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Check, Upload, FileText, Download,
   Calendar, Building2, User as UserIcon, Clock, CheckCircle, Trash2,
   Box, FileSpreadsheet, Image, File, X, Eye, ChevronLeft, MessageSquare, Send,
-  DollarSign, CheckCheck, XCircle, CheckSquare, Plus, ChevronDown, ChevronRight
+  DollarSign, CheckCheck, XCircle, CheckSquare, Plus, ChevronDown, ChevronRight, Filter
 } from 'lucide-react'
 import StepViewer from '../components/StepViewer'
 import DxfViewer from '../components/DxfViewer'
@@ -14,10 +14,31 @@ import '../components/DxfViewer.css'
 import { RevisionManager } from '../components/RevisionManager'
 import './ProjectDetail.css'
 
+// File categories for filtering (Proje Dosyaları) — sadece aktif dosyalar; pasifler ayrı sekmede
+const FILE_CATEGORIES = {
+  all: { key: 'all', label: 'Tümü', types: null },
+  work: { key: 'work', label: 'Çalışma dosyaları', types: ['step', 'stl', 'dxf', 'iges', 'parasolid'] },
+  pdf: { key: 'pdf', label: 'PDF', types: ['pdf'] },
+  excel: { key: 'excel', label: 'Excel', types: ['excel'] },
+  image: { key: 'image', label: 'Resim', types: ['image'] },
+  document: { key: 'document', label: 'Sözleşme / Döküman', types: ['document'] },
+  other: { key: 'other', label: 'Diğer', types: ['other'] },
+  pasif: { key: 'pasif', label: 'Pasif dosyalar', types: null }
+}
+const getFileCategory = (fileType) => {
+  if (!fileType) return 'other'
+  for (const [key, cat] of Object.entries(FILE_CATEGORIES)) {
+    if (key === 'all') continue
+    if (cat.types && cat.types.includes(fileType.toLowerCase())) return key
+  }
+  return 'other'
+}
+
 // File type icons
 const getFileIcon = (type) => {
   switch (type) {
     case 'step': return <Box size={20} className="file-icon step" />
+    case 'stl': return <Box size={20} className="file-icon stl" />
     case 'dxf': return <Box size={20} className="file-icon dxf" />
     case 'iges': return <Box size={20} className="file-icon iges" />
     case 'parasolid': return <Box size={20} className="file-icon parasolid" />
@@ -79,6 +100,9 @@ export default function ProjectDetail() {
   const [addingSubItem, setAddingSubItem] = useState(null) // parent item id
   const [newSubItemTitle, setNewSubItemTitle] = useState('')
   const [savingSubItem, setSavingSubItem] = useState(false)
+
+  // Proje dosyaları filtre (kategori)
+  const [fileCategoryFilter, setFileCategoryFilter] = useState('all')
 
   const fetchProject = async () => {
     try {
@@ -222,6 +246,42 @@ export default function ProjectDetail() {
   const handleCancelCustomerNote = () => {
     setEditingCustomerNote(null)
     setCustomerNoteText('')
+  }
+
+  const handleExtendDeadline = async (supplierId) => {
+    if (!confirm('Bu tedarikçiye 1 gün ek süre vermek istediğinize emin misiniz?')) return
+    setProcessingQuotation(supplierId)
+    try {
+      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/extend-deadline`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        alert('1 gün ek süre verildi.')
+        fetchQuotations()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'İşlem başarısız.')
+      }
+    } catch (e) {
+      alert('Bir hata oluştu.')
+    } finally {
+      setProcessingQuotation(null)
+    }
+  }
+
+  const formatQuoteTimeLeft = (quoteDueAt) => {
+    if (!quoteDueAt) return null
+    const due = new Date(quoteDueAt).getTime()
+    const now = Date.now()
+    if (due <= now) return { expired: true, text: 'Süresi doldu' }
+    const ms = due - now
+    const days = Math.floor(ms / (24 * 60 * 60 * 1000))
+    const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+    if (days > 0) return { expired: false, text: `${days} gün ${hours} saat kaldı` }
+    if (hours > 0) return { expired: false, text: `${hours} saat kaldı` }
+    const mins = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000))
+    return { expired: false, text: `${mins} dakika kaldı` }
   }
 
   const handleSaveCustomerNote = async (supplierId) => {
@@ -622,6 +682,33 @@ export default function ProjectDetail() {
     
     return { activeFilesWithPreviews, inactiveFiles }
   }, [project?.project_files])
+
+  // Group files by category — sadece AKTİF dosyalar; pasifler ayrı "Pasif dosyalar" sekmesinde
+  const { groupedByCategory, filteredFilesWithPreviews } = useMemo(() => {
+    const categories = { work: [], pdf: [], excel: [], image: [], document: [], other: [] }
+    const push = (entry) => {
+      const cat = getFileCategory(entry.file?.file_type ?? entry.file_type)
+      if (categories[cat]) categories[cat].push(entry)
+    }
+    activeFilesWithPreviews.forEach(({ file, pendingPreviews }) => {
+      push({ file, pendingPreviews, isActive: true })
+    })
+    const filterKey = fileCategoryFilter
+    const catDef = FILE_CATEGORIES[filterKey]
+    let filtered = null
+    if (filterKey === 'pasif') {
+      filtered = inactiveFiles.map(file => ({ file, pendingPreviews: [], isActive: false }))
+    } else if (filterKey !== 'all') {
+      let list
+      if (catDef?.types) {
+        list = activeFilesWithPreviews.filter(({ file }) => catDef.types.includes(file.file_type))
+      } else {
+        list = activeFilesWithPreviews.filter(({ file }) => getFileCategory(file.file_type) === 'other')
+      }
+      filtered = list.map(({ file, pendingPreviews }) => ({ file, pendingPreviews, isActive: true }))
+    }
+    return { groupedByCategory: categories, filteredFilesWithPreviews: filtered }
+  }, [activeFilesWithPreviews, inactiveFiles, fileCategoryFilter])
   
   // Early returns AFTER all hooks (React Hooks rule)
   if (loading) {
@@ -862,143 +949,165 @@ export default function ProjectDetail() {
         {/* Left Panel: Files or Viewer */}
         <div className="viewer-panel">
           {viewMode === 'files' && hasProjectFiles ? (
-            // Files List View
+            // Files List View (kategorilere ayrılmış + filtre)
             <>
-              {/* Active Files + Preview Files */}
-              <div className="panel-header">
+              <div className="panel-header panel-header-with-filter">
                 <h2>Proje Dosyaları</h2>
                 <span className="file-count">
-                  {activeFilesWithPreviews.length} dosya
+                  {fileCategoryFilter === 'pasif'
+                    ? inactiveFiles.length
+                    : fileCategoryFilter === 'all'
+                      ? activeFilesWithPreviews.length
+                      : filteredFilesWithPreviews?.length ?? 0}{' '}
+                  dosya
                 </span>
               </div>
-              <div className="files-grid">
-                {activeFilesWithPreviews.map(({ file, pendingPreviews }) => {
-                  const hasPreview = pendingPreviews.length > 0
-                  
+              <div className="file-category-filter">
+                <Filter size={16} className="filter-icon" />
+                {['all', 'work', 'pdf', 'excel', 'image', 'document', 'other', 'pasif'].map((key) => {
+                  const cat = FILE_CATEGORIES[key]
+                  const count = key === 'all'
+                    ? activeFilesWithPreviews.length
+                    : key === 'pasif'
+                      ? inactiveFiles.length
+                      : (groupedByCategory[key] || []).length
                   return (
-                    <div key={`file-group-${file.id}`} className={hasPreview ? 'file-group-with-preview' : ''}>
-                      <div 
-                        className="project-file-card"
-                        data-status={file.status}
-                        onClick={() => handleFileClick(file)}
-                      >
-                        <div className="file-card-icon">
-                          {getFileIcon(file.file_type)}
-                        </div>
-                        <div className="file-card-info">
-                          <span className="file-card-name">{file.file_name}</span>
-                          {file.description && (
-                            <span className="file-card-desc">{file.description}</span>
-                          )}
-                          <div className="file-card-meta">
-                            {['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && file.quantity > 1 && (
-                              <span className="file-card-qty">{file.quantity} adet</span>
-                            )}
-                            {file.revision && (
-                              <span className="file-card-revision">Rev. {file.revision}</span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="file-card-badge">
-                          {file.file_type.toUpperCase()}
-                        </div>
-                        <button className="file-card-view">
-                          <Eye size={16} />
-                        </button>
-                      </div>
-                      
-                      {/* Preview files connected to this file */}
-                      {hasPreview && (
-                        <>
-                          <div className="file-connection-line">
-                            <ArrowRight size={20} />
-                          </div>
-                          {pendingPreviews.map((pending) => (
-                            <div 
-                              key={pending.id} 
-                              className="project-file-card pending"
-                              data-status={pending.status}
-                              onClick={() => handleFileClick(pending)}
-                            >
-                              <div className="file-card-icon">
-                                {getFileIcon(pending.file_type)}
-                              </div>
-                              <div className="file-card-info">
-                                <span className="file-card-name">{pending.file_name}</span>
-                                {pending.description && (
-                                  <span className="file-card-desc">{pending.description}</span>
-                                )}
-                                <div className="file-card-meta">
-                                  {['step', 'dxf', 'iges', 'parasolid'].includes(pending.file_type) && pending.quantity > 1 && (
-                                    <span className="file-card-qty">{pending.quantity} adet</span>
-                                  )}
-                                  {pending.revision && (
-                                    <span className="file-card-revision">Rev. {pending.revision}</span>
-                                  )}
-                                  <span className="file-card-pending">ÖNZLEME</span>
-                                </div>
-                              </div>
-                              <div className="file-card-badge">
-                                {pending.file_type.toUpperCase()}
-                              </div>
-                              <button className="file-card-view">
-                                <Eye size={16} />
-                              </button>
-                            </div>
-                          ))}
-                        </>
-                      )}
-                    </div>
+                    <button
+                      key={key}
+                      type="button"
+                      className={`file-filter-btn ${fileCategoryFilter === key ? 'active' : ''}`}
+                      onClick={() => setFileCategoryFilter(key)}
+                    >
+                      {cat.label}
+                      {count > 0 && <span className="file-filter-count">({count})</span>}
+                    </button>
                   )
                 })}
               </div>
-
-              {/* Inactive Files Section (only truly inactive files, not pending) */}
-              {inactiveFiles.length > 0 && (
-                <div className="inactive-files-section">
-                  <div className="panel-header inactive-header">
-                    <h2>Pasif Dosyalar</h2>
-                    <span className="file-count">
-                      {inactiveFiles.length} dosya
-                    </span>
-                  </div>
-                  <div className="files-grid">
-                    {inactiveFiles.map((file, index) => (
-                        <div 
-                          key={file.id || index} 
-                          className="project-file-card inactive"
+              <div className="files-list-by-category">
+                {fileCategoryFilter === 'all' ? (
+                  (['work', 'pdf', 'excel', 'image', 'document', 'other']).map((catKey) => {
+                    const list = groupedByCategory[catKey] || []
+                    if (list.length === 0) return null
+                    const catLabel = FILE_CATEGORIES[catKey].label
+                    return (
+                      <div key={catKey} className="file-category-section">
+                        <div className="panel-header category-section-header">
+                          <h3>{catLabel}</h3>
+                          <span className="file-count">{list.length} dosya</span>
+                        </div>
+                        <div className="files-grid">
+                          {list.map(({ file, pendingPreviews, isActive }) => (
+                            <div key={`file-group-${file.id}`} className={pendingPreviews?.length > 0 ? 'file-group-with-preview' : ''}>
+                              <div
+                                className={`project-file-card ${!isActive ? 'inactive' : ''}`}
+                                data-status={file.status}
+                                onClick={() => handleFileClick(file)}
+                              >
+                                <div className="file-card-icon">{getFileIcon(file.file_type)}</div>
+                                <div className="file-card-info">
+                                  <span className="file-card-name">{file.file_name}</span>
+                                  {file.description && <span className="file-card-desc">{file.description}</span>}
+                                  <div className="file-card-meta">
+                                    {['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && file.quantity > 1 && (
+                                      <span className="file-card-qty">{file.quantity} adet</span>
+                                    )}
+                                    {file.revision && <span className="file-card-revision">Rev. {file.revision}</span>}
+                                    {!isActive && <span className="file-card-inactive">PASİF</span>}
+                                  </div>
+                                </div>
+                                <div className="file-card-badge">{file.file_type.toUpperCase()}</div>
+                                <button className="file-card-view"><Eye size={16} /></button>
+                              </div>
+                              {pendingPreviews?.length > 0 && (
+                                <>
+                                  <div className="file-connection-line"><ArrowRight size={20} /></div>
+                                  {pendingPreviews.map((pending) => (
+                                    <div key={pending.id} className="project-file-card pending" data-status={pending.status} onClick={() => handleFileClick(pending)}>
+                                      <div className="file-card-icon">{getFileIcon(pending.file_type)}</div>
+                                      <div className="file-card-info">
+                                        <span className="file-card-name">{pending.file_name}</span>
+                                        {pending.description && <span className="file-card-desc">{pending.description}</span>}
+                                        <div className="file-card-meta">
+                                          {['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(pending.file_type) && pending.quantity > 1 && (
+                                            <span className="file-card-qty">{pending.quantity} adet</span>
+                                          )}
+                                          {pending.revision && <span className="file-card-revision">Rev. {pending.revision}</span>}
+                                          <span className="file-card-pending">ÖNZLEME</span>
+                                        </div>
+                                      </div>
+                                      <div className="file-card-badge">{pending.file_type.toUpperCase()}</div>
+                                      <button className="file-card-view"><Eye size={16} /></button>
+                                    </div>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <>
+                    {fileCategoryFilter === 'pasif' && inactiveFiles.length > 0 && (
+                      <div className="panel-header category-section-header pasif-section-header">
+                        <h3>Pasif dosyalar (eski revizyonlar)</h3>
+                        <span className="file-count">{inactiveFiles.length} dosya</span>
+                      </div>
+                    )}
+                    <div className="files-grid">
+                    {(filteredFilesWithPreviews || []).map(({ file, pendingPreviews, isActive }) => (
+                      <div key={`file-group-${file.id}`} className={pendingPreviews?.length > 0 ? 'file-group-with-preview' : ''}>
+                        <div
+                          className={`project-file-card ${!isActive ? 'inactive' : ''}`}
                           data-status={file.status}
                           onClick={() => handleFileClick(file)}
                         >
-                          <div className="file-card-icon">
-                            {getFileIcon(file.file_type)}
-                          </div>
+                          <div className="file-card-icon">{getFileIcon(file.file_type)}</div>
                           <div className="file-card-info">
                             <span className="file-card-name">{file.file_name}</span>
-                            {file.description && (
-                              <span className="file-card-desc">{file.description}</span>
-                            )}
+                            {file.description && <span className="file-card-desc">{file.description}</span>}
                             <div className="file-card-meta">
-                              {['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && file.quantity > 1 && (
+                              {['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && file.quantity > 1 && (
                                 <span className="file-card-qty">{file.quantity} adet</span>
                               )}
-                              {file.revision && (
-                                <span className="file-card-revision">Rev. {file.revision}</span>
-                              )}
-                              <span className="file-card-inactive">PASİF</span>
+                              {file.revision && <span className="file-card-revision">Rev. {file.revision}</span>}
+                              {!isActive && <span className="file-card-inactive">PASİF</span>}
                             </div>
                           </div>
-                          <div className="file-card-badge">
-                            {file.file_type.toUpperCase()}
-                          </div>
-                          <button className="file-card-view">
-                            <Eye size={16} />
-                          </button>
+                          <div className="file-card-badge">{file.file_type.toUpperCase()}</div>
+                          <button className="file-card-view"><Eye size={16} /></button>
                         </div>
-                      ))}
+                        {pendingPreviews?.length > 0 && (
+                          <>
+                            <div className="file-connection-line"><ArrowRight size={20} /></div>
+                            {pendingPreviews.map((pending) => (
+                              <div key={pending.id} className="project-file-card pending" data-status={pending.status} onClick={() => handleFileClick(pending)}>
+                                <div className="file-card-icon">{getFileIcon(pending.file_type)}</div>
+                                <div className="file-card-info">
+                                  <span className="file-card-name">{pending.file_name}</span>
+                                  {pending.description && <span className="file-card-desc">{pending.description}</span>}
+                                  <div className="file-card-meta">
+                                    {['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(pending.file_type) && pending.quantity > 1 && (
+                                      <span className="file-card-qty">{pending.quantity} adet</span>
+                                    )}
+                                    {pending.revision && <span className="file-card-revision">Rev. {pending.revision}</span>}
+                                    <span className="file-card-pending">ÖNZLEME</span>
+                                  </div>
+                                </div>
+                                <div className="file-card-badge">{pending.file_type.toUpperCase()}</div>
+                                <button className="file-card-view"><Eye size={16} /></button>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                </div>
-              )}
+                  </>
+                )}
+              </div>
             </>
           ) : viewMode === 'viewer' && activeFile ? (
             // Single File Viewer
@@ -1154,6 +1263,7 @@ export default function ProjectDetail() {
                             {q.status === 'quoted' && 'Teklif Geldi'}
                             {q.status === 'accepted' && 'Kabul Edildi'}
                             {q.status === 'rejected' && 'Reddedildi'}
+                            {q.status === 'expired' && 'Süresi Doldu'}
                           </span>
                         </div>
 
@@ -1265,7 +1375,24 @@ export default function ProjectDetail() {
                         {q.status === 'pending' && (
                           <div className="waiting-quote">
                             <Clock size={16} />
-                            <span>Teklif bekleniyor...</span>
+                            <span>
+                              {formatQuoteTimeLeft(q.quote_due_at)?.text || 'Teklif bekleniyor...'}
+                            </span>
+                          </div>
+                        )}
+
+                        {q.status === 'expired' && (
+                          <div className="waiting-quote expired">
+                            <Clock size={16} />
+                            <span>Süresi doldu. Teklif gönderilmedi.</span>
+                            <button
+                              type="button"
+                              className="btn btn-extend-deadline"
+                              onClick={() => handleExtendDeadline(q.supplier?.id)}
+                              disabled={processingQuotation === q.supplier?.id}
+                            >
+                              {processingQuotation === q.supplier?.id ? 'İşleniyor...' : '+ 1 Gün Uzat'}
+                            </button>
                           </div>
                         )}
                       </div>

@@ -787,7 +787,17 @@ router.get('/users', authenticateToken, async (req, res) => {
         .order('created_at', { ascending: false })
 
       if (profileError) throw profileError
-      data = profiles
+
+      // E-posta auth.users'dan al (profiles'da yok)
+      const withEmail = await Promise.all((profiles || []).map(async (p) => {
+        try {
+          const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(p.id)
+          return { ...p, email: authUser?.user?.email || null }
+        } catch {
+          return { ...p, email: null }
+        }
+      }))
+      data = withEmail
     } else {
       // Admins see all users with plan info
       const { data: profiles, error } = await supabaseAdmin

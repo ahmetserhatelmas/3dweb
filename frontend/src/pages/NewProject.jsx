@@ -5,9 +5,21 @@ import API_URL from '../lib/api'
 import { 
   ArrowLeft, ArrowRight, Save, Upload, 
   FileBox, Box, LogOut, Users, X, File,
-  FileText, FileSpreadsheet, Image, Check, UserPlus
+  FileText, FileSpreadsheet, Image, Check, UserPlus, DollarSign
 } from 'lucide-react'
 import './NewProject.css'
+
+// Proje dosya yükleme limiti (tek proje için toplam)
+const PROJECT_UPLOAD_LIMIT_MB = 500
+const PROJECT_UPLOAD_LIMIT_BYTES = PROJECT_UPLOAD_LIMIT_MB * 1024 * 1024
+
+// Format file size for display
+const formatFileSize = (bytes) => {
+  if (bytes == null || bytes === 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
 
 // File type icons
 const getFileIcon = (type) => {
@@ -38,6 +50,7 @@ export default function NewProject() {
   const [uploadedFiles, setUploadedFiles] = useState([])
   const [tempFolder, setTempFolder] = useState(null)
   const [dragActive, setDragActive] = useState(false)
+  const [usageStats, setUsageStats] = useState(null)
   
   // Step 2: File details (edited by user)
   // Will be stored in uploadedFiles with additional fields
@@ -46,13 +59,26 @@ export default function NewProject() {
   const [projectInfo, setProjectInfo] = useState({
     name: '',
     deadline: '',
+    payment_due_date: '',
     selectedSuppliers: []
   })
   const [showDeadline, setShowDeadline] = useState(false)
+  const [showPaymentDue, setShowPaymentDue] = useState(false)
 
   useEffect(() => {
     fetchSuppliers()
   }, [])
+
+  useEffect(() => {
+    if (isCustomer) {
+      fetch(`${API_URL}/api/auth/my-usage-stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then((res) => res.ok && res.json())
+        .then((data) => data && setUsageStats(data))
+        .catch(() => {})
+    }
+  }, [isCustomer, token])
 
   const fetchSuppliers = async () => {
     try {
@@ -128,6 +154,16 @@ export default function NewProject() {
     
     // Yeni dosya yoksa işlemi durdur
     if (newFiles.length === 0) {
+      return
+    }
+
+    // 500 MB proje limiti: mevcut + yeni dosyalar toplamı limiti aşmasın
+    const currentTotal = uploadedFiles.reduce((s, f) => s + (Number(f.file_size) || 0), 0)
+    const newTotal = newFiles.reduce((s, f) => s + (f.size || 0), 0)
+    if (currentTotal + newTotal > PROJECT_UPLOAD_LIMIT_BYTES) {
+      const currentMB = (currentTotal / (1024 * 1024)).toFixed(1)
+      const wouldBeMB = ((currentTotal + newTotal) / (1024 * 1024)).toFixed(1)
+      alert(`⚠️ Proje dosya limiti ${PROJECT_UPLOAD_LIMIT_MB} MB.\n\nMevcut: ${currentMB} MB. Eklenmek istenen dosyalar ile toplam ${wouldBeMB} MB olur. Daha fazla dosya ekleyemezsiniz.`)
       return
     }
     
@@ -221,6 +257,9 @@ export default function NewProject() {
     }
   }
 
+  const projectUploadTotalBytes = uploadedFiles.reduce((s, f) => s + (Number(f.file_size) || 0), 0)
+  const isProjectUploadLimitReached = projectUploadTotalBytes >= PROJECT_UPLOAD_LIMIT_BYTES
+
   const removeFile = (index) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index))
   }
@@ -289,7 +328,7 @@ export default function NewProject() {
 
   const handleSubmit = async () => {
     // Validate CAD files have quantity
-    const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+    const cadFileTypes = ['step', 'stl', 'dxf', 'iges', 'parasolid']
     const cadFilesWithoutQuantity = uploadedFiles.filter(
       file => cadFileTypes.includes(file.file_type) && (!file.quantity || file.quantity < 1)
     )
@@ -311,6 +350,7 @@ export default function NewProject() {
         body: JSON.stringify({
           name: projectInfo.name,
           deadline: projectInfo.deadline || null,
+          payment_due_date: projectInfo.payment_due_date || null,
           suppliers: projectInfo.selectedSuppliers,
           files: uploadedFiles,
           use_standard_checklist: true
@@ -355,10 +395,27 @@ export default function NewProject() {
             <FileBox size={20} />
             <span>Projeler</span>
           </Link>
-          <Link to={`${basePath}/users`} className="nav-item">
-            <Users size={20} />
-            <span>{isCustomer ? 'Tedarikçiler' : 'Kullanıcılar'}</span>
-          </Link>
+          {isCustomer ? (
+            <>
+              <Link to={`${basePath}/suppliers`} className="nav-item">
+                <Users size={20} />
+                <span>Tedarikçiler</span>
+              </Link>
+              <Link to={`${basePath}/users`} className="nav-item">
+                <UserPlus size={20} />
+                <span>Kullanıcılar</span>
+              </Link>
+              <Link to={`${basePath}/archive`} className="nav-item">
+                <DollarSign size={20} />
+                <span>Arşiv Teklifler</span>
+              </Link>
+            </>
+          ) : (
+            <Link to={`${basePath}/users`} className="nav-item">
+              <Users size={20} />
+              <span>Kullanıcılar</span>
+            </Link>
+          )}
         </nav>
 
         <div className="sidebar-footer">
@@ -412,7 +469,7 @@ export default function NewProject() {
               <p className="section-desc">STEP, STL, DXF, IGES, Parasolid, PDF, Excel ve resim dosyalarını yükleyebilirsiniz.</p>
               
               <div 
-                className={`file-dropzone ${dragActive ? 'active' : ''} ${loading ? 'loading' : ''}`}
+                className={`file-dropzone ${dragActive ? 'active' : ''} ${loading ? 'loading' : ''} ${isProjectUploadLimitReached ? 'limit-reached' : ''}`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
@@ -425,11 +482,12 @@ export default function NewProject() {
                   onChange={handleFileSelect}
                   id="file-input"
                   hidden
+                  disabled={isProjectUploadLimitReached}
                 />
-                <label htmlFor="file-input" className="dropzone-content">
+                <label htmlFor="file-input" className="dropzone-content" style={isProjectUploadLimitReached ? { pointerEvents: 'none', opacity: 0.7 } : undefined}>
                   <Upload size={48} />
                   <span className="dropzone-text">
-                    {loading ? 'Yükleniyor...' : 'Dosyaları sürükleyin veya tıklayın'}
+                    {loading ? 'Yükleniyor...' : isProjectUploadLimitReached ? 'Proje limiti doldu (500 MB)' : 'Dosyaları sürükleyin veya tıklayın'}
                   </span>
                   <span className="dropzone-hint">
                     STEP, STL, DXF, IGES, Parasolid, PDF, Excel, JPG, PNG (max 500MB)
@@ -444,13 +502,38 @@ export default function NewProject() {
 
               {uploadedFiles.length > 0 && (
                 <div className="uploaded-files-list">
-                  <h3 className="list-title">Yüklenen Dosyalar ({uploadedFiles.length})</h3>
+                  <div className="list-header-with-storage">
+                    <h3 className="list-title">Yüklenen Dosyalar ({uploadedFiles.length})</h3>
+                    {(() => {
+                      const totalBytes = uploadedFiles.reduce((s, f) => s + (Number(f.file_size) || 0), 0)
+                      const usedMB = (totalBytes / (1024 * 1024)).toFixed(1)
+                      const percent = Math.min(100, (totalBytes / PROJECT_UPLOAD_LIMIT_BYTES) * 100)
+                      const isAtOrOverLimit = totalBytes >= PROJECT_UPLOAD_LIMIT_BYTES
+                      return (
+                        <div className="storage-usage-block">
+                          <span className="storage-usage-label" title="Sadece bu projeye az önce eklediğiniz dosyaların toplamı">
+                            Bu projede: {usedMB} MB / {PROJECT_UPLOAD_LIMIT_MB} MB
+                          </span>
+                          <div className="storage-usage-bar">
+                            <div
+                              className="storage-usage-fill"
+                              style={{ width: `${percent}%`, background: isAtOrOverLimit ? '#ef4444' : '#8b5cf6' }}
+                            />
+                          </div>
+                          {isAtOrOverLimit && (
+                            <span className="storage-limit-reached">Limit doldu, daha fazla dosya eklenemez.</span>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
                   {uploadedFiles.map((file, index) => (
                     <div key={index} className="uploaded-file-item">
                       {getFileIcon(file.file_type)}
                       <div className="file-details">
                         <span className="file-name">{file.file_name}</span>
                         <span className="file-type-badge">{file.file_type.toUpperCase()}</span>
+                        <span className="file-size">{formatFileSize(file.file_size)}</span>
                       </div>
                       <button 
                         className="remove-file-btn"
@@ -491,7 +574,7 @@ export default function NewProject() {
                         />
                       </div>
                       
-                      {['step', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && (
+                      {['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(file.file_type) && (
                         <div className="input-group input-small">
                           <label>Adet *</label>
                 <input
@@ -578,6 +661,46 @@ export default function NewProject() {
                     </div>
                   )}
                 </div>
+
+                <div className="input-group">
+                  {!showPaymentDue ? (
+                    <button 
+                      type="button"
+                      className="add-deadline-btn"
+                      onClick={() => setShowPaymentDue(true)}
+                    >
+                      + Vade Tarihi Gir <span style={{ opacity: 0.6, fontSize: '0.9em' }}>(Zorunlu Değil)</span>
+                    </button>
+                  ) : (
+                    <div>
+                      <label htmlFor="payment_due_date">Vade Tarihi</label>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input
+                          type="date"
+                          id="payment_due_date"
+                          className="input"
+                          value={projectInfo.payment_due_date}
+                          onChange={(e) => setProjectInfo(prev => ({ ...prev, payment_due_date: e.target.value }))}
+                          style={{ flex: 1 }}
+                        />
+                        <button 
+                          type="button"
+                          className="remove-deadline-btn"
+                          onClick={() => {
+                            setShowPaymentDue(false)
+                            setProjectInfo(prev => ({ ...prev, payment_due_date: '' }))
+                          }}
+                          title="Vade tarihini kaldır"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                        Sözleşmede Ödeme koşullarına yazılır. Boş bırakırsanız &quot;Teslimattan sonra 30 gün içinde&quot; kullanılır.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="suppliers-section">
@@ -641,7 +764,7 @@ export default function NewProject() {
                 onClick={() => {
                   // Step 2'den 3'e geçerken adet kontrolü yap
                   if (currentStep === 2) {
-                    const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
+                    const cadFileTypes = ['step', 'stl', 'dxf', 'iges', 'parasolid']
                     const cadFilesWithoutQuantity = uploadedFiles.filter(
                       file => cadFileTypes.includes(file.file_type) && (!file.quantity || file.quantity < 1)
                     )

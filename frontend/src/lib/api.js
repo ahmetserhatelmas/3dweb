@@ -105,7 +105,7 @@ export const api = {
     return response.json()
   },
 
-  // Upload file
+  // Upload file (backend uploads to R2 – can cause SSL handshake error; prefer presigned for revisions)
   async uploadFile(file) {
     const formData = new FormData()
     formData.append('file', file)
@@ -125,6 +125,36 @@ export const api = {
     }
 
     return response.json()
+  },
+
+  // Revizyon dosyası: presigned URL alıp tarayıcıdan doğrudan yükle (backend R2 TLS hatası önlenir)
+  async getPresignedRevisionUploadUrl(file) {
+    const response = await fetch(apiUrl('/api/upload/presigned-url-revision'), {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream'
+      })
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Yükleme URL\'i alınamadı')
+    }
+    return response.json()
+  },
+
+  async uploadFileToPresignedUrl(file, uploadUrl) {
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream'
+      }
+    })
+    if (!res.ok) {
+      throw new Error(`Dosya yüklenemedi (${res.status})`)
+    }
   }
 }
 

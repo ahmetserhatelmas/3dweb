@@ -544,6 +544,12 @@ export default function Users() {
                       {u.company_name}
                     </p>
                   )}
+                  {isCustomer && u.email && (
+                    <p className="user-email">
+                      <Mail size={14} />
+                      {u.email}
+                    </p>
+                  )}
                   {/* Show plan info for all customers (admin view only) */}
                   {!isCustomer && u.role === 'customer' && (
                     <div style={{ marginTop: '0.5rem' }}>

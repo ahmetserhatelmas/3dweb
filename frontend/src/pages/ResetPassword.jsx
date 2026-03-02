@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+import { supabase as supabaseFromLib } from '../lib/supabase'
+import { apiUrl } from '../lib/api'
 import './ResetPassword.css'
 
 export default function ResetPassword() {
@@ -13,12 +15,29 @@ export default function ResetPassword() {
   const [success, setSuccess] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
   const [invalidLink, setInvalidLink] = useState(false)
+  const [configLoaded, setConfigLoaded] = useState(!!supabaseFromLib)
+  const supabaseRef = useRef(supabaseFromLib)
 
   useEffect(() => {
-    if (!supabase) {
-      setInvalidLink(true)
+    const supabase = supabaseRef.current
+    if (supabase) {
+      setConfigLoaded(true)
       return
     }
+    fetch(apiUrl('/api/config'))
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.supabaseUrl && data?.supabaseAnonKey) {
+          supabaseRef.current = createClient(data.supabaseUrl, data.supabaseAnonKey)
+        }
+        setConfigLoaded(true)
+      })
+      .catch(() => setConfigLoaded(true))
+  }, [])
+
+  useEffect(() => {
+    const supabase = supabaseRef.current
+    if (!supabase || !configLoaded) return
     const hash = window.location.hash
     if (!hash) {
       setInvalidLink(true)
@@ -38,7 +57,7 @@ export default function ResetPassword() {
         window.history.replaceState(null, '', window.location.pathname)
       })
       .catch(() => setInvalidLink(true))
-  }, [])
+  }, [configLoaded])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -49,6 +68,11 @@ export default function ResetPassword() {
     }
     if (password !== confirmPassword) {
       setError('Şifreler eşleşmiyor.')
+      return
+    }
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Bağlantı yapılandırması yüklenemedi.')
       return
     }
     setLoading(true)
@@ -64,11 +88,22 @@ export default function ResetPassword() {
     }
   }
 
-  if (!supabase) {
+  if (!configLoaded) {
     return (
       <div className="reset-password-page">
         <div className="reset-password-box">
-          <p>Supabase yapılandırması eksik.</p>
+          <p>Yükleniyor...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!supabaseRef.current) {
+    return (
+      <div className="reset-password-page">
+        <div className="reset-password-box">
+          <h1>Yapılandırma eksik</h1>
+          <p>Şifre sıfırlama sayfası şu an kullanılamıyor. Lütfen ana sayfaya dönüp &quot;Şifremi unuttum&quot; ile tekrar deneyin veya site yöneticisiyle iletişime geçin.</p>
           <a href="/">Ana sayfaya dön</a>
         </div>
       </div>

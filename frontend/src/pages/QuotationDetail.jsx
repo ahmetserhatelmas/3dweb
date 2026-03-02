@@ -316,14 +316,19 @@ export default function QuotationDetail() {
     setViewMode('files')
   }
 
+  // R2/Supabase public URL tarayıcıda ERR_SSL_PROTOCOL_ERROR verebiliyor; tedarikçi de backend stream kullansın (müşteri gibi).
   const renderFilePreview = (file) => {
     if (!file) return null
+    const useStream = project?.id && file?.id && token
+    const streamUrl = useStream ? `${API_URL}/api/projects/${project.id}/files/${file.id}/stream` : null
+    const fetchOptions = useStream ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+    const fileUrl = streamUrl || file.file_url
 
     switch (file.file_type) {
       case 'step':
-        return <StepViewer fileUrl={file.file_url} />
+        return <StepViewer fileUrl={fileUrl} fetchOptions={fetchOptions} />
       case 'dxf':
-        return <DxfViewer fileUrl={file.file_url} fileName={file.file_name} />
+        return <DxfViewer fileUrl={fileUrl} fileName={file.file_name} fetchOptions={fetchOptions} />
       case 'iges':
       case 'parasolid':
         return (
@@ -511,13 +516,17 @@ export default function QuotationDetail() {
                   Dosyalara Dön
                 </button>
                 <span className="file-name-display">{activeFile.file_name}</span>
-                {activeFile.file_url && (
+                {(activeFile.file_url || (project?.id && activeFile?.id)) && (
                   <button 
                     className="download-file-btn"
                     title="Dosyayı İndir"
                     onClick={async () => {
+                      const downloadUrl = project?.id && activeFile?.id && token
+                        ? `${API_URL}/api/projects/${project.id}/files/${activeFile.id}/stream`
+                        : activeFile.file_url
+                      const opts = downloadUrl.includes('/stream') ? { headers: { Authorization: `Bearer ${token}` } } : {}
                       try {
-                        const response = await fetch(activeFile.file_url)
+                        const response = await fetch(downloadUrl, opts)
                         const blob = await response.blob()
                         const url = window.URL.createObjectURL(blob)
                         const a = document.createElement('a')
@@ -529,7 +538,7 @@ export default function QuotationDetail() {
                         document.body.removeChild(a)
                       } catch (err) {
                         console.error('Download error:', err)
-                        window.open(activeFile.file_url, '_blank')
+                        if (activeFile.file_url) window.open(activeFile.file_url, '_blank')
                       }
                     }}
                   >

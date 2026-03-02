@@ -17,7 +17,8 @@ export async function generateContractPDF(contractData) {
     totalPrice,
     deliveryDate,
     contractDate,
-    projectId
+    projectId,
+    paymentDueDate
   } = contractData
 
   return new Promise((resolve, reject) => {
@@ -237,12 +238,15 @@ export async function generateContractPDF(contractData) {
          .fillColor(textColor)
       
       const formattedDeliveryDate = formatDate(deliveryDate)
+      const paymentTermsText = paymentDueDate
+        ? `Odeme kosullari: Vade tarihi ${formatDate(paymentDueDate)}.`
+        : 'Odeme kosullari: Teslimattan sonra 30 gun icinde.'
       const terms = [
         'Bu sozlesme, yukarida belirtilen taraflar arasinda karsilikli mutabakat ile imzalanmistir.',
         'Belirtilen fiyatlar KDV harictir.',
         `Termin tarihi ${formattedDeliveryDate} olarak belirlenmistir. Degisiklikler yazili bildirilmelidir.`,
         'Urun teslim oncesi kalite kontrol yapilacaktir.',
-        'Odeme kosullari: Teslimattan sonra 30 gun icinde.',
+        paymentTermsText,
         'Teknik cizim ve spesifikasyonlara uygunluk garanti edilir.'
       ]
       

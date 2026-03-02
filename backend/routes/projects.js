@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { spawn } from 'child_process'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken, requireAdmin, requireAdminOrCustomer } from '../middleware/supabaseAuth.js'
-import { sendContractEmailToSupplier } from '../lib/email.js'
+import { sendContractEmailToSupplier, sendQuoteRequestToSupplier, sendQuoteReminder1DayLeft } from '../lib/email.js'
 import { getR2ObjectStream } from '../lib/r2Storage.js'
 
 const router = express.Router()
@@ -606,6 +606,36 @@ router.get('/:projectId/quotations', authenticateToken, async (req, res) => {
       }
     }
 
+    // Sync: Süresi dolan pending kayıtları expired yap; son 1 gün kala hatırlatma e-postası gönder
+    const now = new Date().toISOString()
+    const oneDayFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const { data: pendingRows } = await supabaseAdmin
+      .from('project_suppliers')
+      .select('id, supplier_id, status, quote_due_at, quote_reminder_sent_at')
+      .eq('project_id', projectId)
+      .eq('status', 'pending')
+    if (pendingRows?.length > 0) {
+      for (const row of pendingRows) {
+        const due = row.quote_due_at
+        if (due && due < now) {
+          await supabaseAdmin.from('project_suppliers').update({ status: 'expired' }).eq('id', row.id)
+        } else if (due && due >= now && due <= oneDayFromNow && !row.quote_reminder_sent_at) {
+          try {
+            const { data: proj } = await supabaseAdmin.from('projects').select('name').eq('id', projectId).single()
+            const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(row.supplier_id)
+            const email = authUser?.user?.email
+            const name = authUser?.user?.user_metadata?.full_name || authUser?.user?.email || 'Tedarikçi'
+            if (email && proj?.name) {
+              await sendQuoteReminder1DayLeft(email, name, proj.name, due)
+              await supabaseAdmin.from('project_suppliers').update({ quote_reminder_sent_at: now }).eq('id', row.id)
+            }
+          } catch (e) {
+            console.warn('Quote reminder send skip:', row.id, e?.message)
+          }
+        }
+      }
+    }
+
     // Get all quotations from project_suppliers (main table)
     const { data: quotations, error } = await supabaseAdmin
       .from('project_suppliers')
@@ -676,7 +706,7 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
     // Check if user is the project creator
     const { data: project, error: projectError } = await freshClient
       .from('projects')
-      .select('created_by, is_quotation, name, part_number')
+      .select('created_by, is_quotation, name, part_number, payment_due_date')
       .eq('id', projectId)
       .single()
 
@@ -798,7 +828,8 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
         })) || [],
         totalPrice: quotationData?.total_price || quotation.quoted_price,
         deliveryDate: quotation.delivery_date ? new Date(quotation.delivery_date).toLocaleDateString('tr-TR') : 'Belirtilmemiş',
-        contractDate: new Date().toLocaleDateString('tr-TR')
+        contractDate: new Date().toLocaleDateString('tr-TR'),
+        paymentDueDate: project.payment_due_date || null
       }
 
       console.log('📄 Contract data prepared:', { 
@@ -977,6 +1008,48 @@ router.post('/:projectId/quotations/:supplierId/note', authenticateToken, async 
     res.json({ message: 'Not eklendi.' })
   } catch (error) {
     console.error('Add customer note error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Müşteri: süresi dolan tedarikçiye ek 1 gün ver
+router.post('/:projectId/quotations/:supplierId/extend-deadline', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, supplierId } = req.params
+    const { createClient } = await import('@supabase/supabase-js')
+    const freshClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+    const { data: project, error: projectError } = await freshClient
+      .from('projects')
+      .select('created_by')
+      .eq('id', projectId)
+      .single()
+    if (projectError || !project) return res.status(404).json({ error: 'Proje bulunamadı.' })
+    if (req.user.role !== 'admin' && project.created_by !== req.user.id) return res.status(403).json({ error: 'Yetkiniz yok.' })
+    const { data: ps, error: psError } = await freshClient
+      .from('project_suppliers')
+      .select('id, status, quote_due_at')
+      .eq('project_id', projectId)
+      .eq('supplier_id', supplierId)
+      .single()
+    if (psError || !ps) return res.status(404).json({ error: 'Teklif kaydı bulunamadı.' })
+    if (ps.status !== 'expired') return res.status(400).json({ error: 'Sadece süresi dolan tekliflere ek süre verilebilir.' })
+    const newDue = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    await freshClient
+      .from('project_suppliers')
+      .update({
+        status: 'pending',
+        quote_due_at: newDue,
+        quote_deadline_extended_at: new Date().toISOString(),
+        quote_reminder_sent_at: null
+      })
+      .eq('id', ps.id)
+    res.json({ message: '1 gün ek süre verildi.', quote_due_at: newDue })
+  } catch (error) {
+    console.error('Extend quote deadline error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })
@@ -1374,7 +1447,7 @@ router.get('/checklist-templates', authenticateToken, async (req, res) => {
 // Create new project (admin or customer) - UPDATED for multi-file & multi-supplier
 router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => {
   try {
-    const { name, part_number, assigned_to, suppliers, deadline, checklist, files, use_standard_checklist } = req.body
+    const { name, part_number, assigned_to, suppliers, deadline, payment_due_date, checklist, files, use_standard_checklist } = req.body
 
     console.log('Create project request:', { name, suppliers, assigned_to })
 
@@ -1398,6 +1471,7 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
       assigned_to: supplierIds[0], // First supplier for backwards compat
       created_by: req.user.id,
       deadline: deadline || null,
+      payment_due_date: payment_due_date || null,
       is_quotation: true
     }
     
@@ -1429,11 +1503,13 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
     
     console.log('VERIFY after insert:', { exists: !!verifyProject, verifyError })
 
-    // Add all suppliers to project_suppliers table with pending status
+    // Add all suppliers to project_suppliers table with pending status; 3 gün teklif süresi
+    const quoteDueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
     const supplierRecords = supplierIds.map(supplierId => ({
       project_id: project.id,
       supplier_id: supplierId,
-      status: 'pending'  // Explicitly set status for quotation system
+      status: 'pending',
+      quote_due_at: quoteDueAt
     }))
 
     console.log('Supplier records to insert:', supplierRecords)
@@ -1449,6 +1525,34 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
       console.error('Add suppliers error:', suppliersError)
     }
 
+    // E-posta: atanan tedarikçilere teklif talebi bildirimi (3 gün süre); hangi müşterinin atadığı da yazılır
+    if (insertedSuppliers && insertedSuppliers.length > 0) {
+      const { createClient } = await import('@supabase/supabase-js')
+      const mailClient = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      )
+      const { data: creatorProfile } = await mailClient
+        .from('profiles')
+        .select('company_name, username')
+        .eq('id', req.user.id)
+        .single()
+      const customerName = creatorProfile?.company_name || creatorProfile?.username || null
+      for (const ps of insertedSuppliers) {
+        try {
+          const { data: authUser } = await mailClient.auth.admin.getUserById(ps.supplier_id)
+          const email = authUser?.user?.email
+          const name = authUser?.user?.user_metadata?.full_name || authUser?.user?.email || 'Tedarikçi'
+          if (email) {
+            await sendQuoteRequestToSupplier(email, name, project.name, quoteDueAt, customerName)
+          }
+        } catch (e) {
+          console.warn('Quote request email skip for supplier', ps.supplier_id, e?.message)
+        }
+      }
+    }
+
     // Add project files if provided
     if (files && files.length > 0) {
       const fileRecords = files.map((file, index) => ({
@@ -1459,9 +1563,11 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
         file_path: file.temp_path,
         file_size: file.file_size || 0,
         description: file.description || null,
-        quantity: file.quantity || 1,
+        quantity: file.quantity ?? 1,
         notes: file.notes || null,
-        order_index: index
+        order_index: index,
+        is_active: true,
+        status: 'active'
       }))
 
       const { error: filesError } = await supabaseAdmin
@@ -1470,6 +1576,11 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
 
       if (filesError) {
         console.error('Add files error:', filesError)
+        await supabaseAdmin.from('projects').delete().eq('id', project.id)
+        return res.status(400).json({
+          error: 'Dosyalar kaydedilemedi. Lütfen dosya türlerini kontrol edip tekrar deneyin.',
+          details: filesError.message
+        })
       }
     }
 

@@ -333,4 +333,40 @@ router.post('/presigned-url', authenticateToken, async (req, res) => {
   }
 })
 
+// Presigned URL for revision file upload (avoids backend→R2 SSL handshake)
+router.post('/presigned-url-revision', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'customer') {
+      return res.status(403).json({ error: 'Sadece admin ve müşteriler revizyon dosyası yükleyebilir.' })
+    }
+    const { filename, contentType } = req.body
+    if (!filename || !contentType) {
+      return res.status(400).json({ error: 'filename ve contentType gerekli' })
+    }
+    const ext = path.extname(filename)
+    const r2Key = `revisions/${uuidv4()}/${uuidv4()}${ext}`
+    const workerUrl = (process.env.R2_WORKER_URL || '').replace(/\/$/, '') || 'https://kunye-upload-worker.ahmetserhatlelmas-1cd.workers.dev'
+    const workerRes = await fetch(`${workerUrl}/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, contentType, key: r2Key })
+    })
+    if (!workerRes.ok) {
+      const errText = await workerRes.text()
+      console.error('Worker presigned revision error:', workerRes.status, errText)
+      return res.status(502).json({ error: 'Yükleme URL\'i alınamadı. Worker yapılandırmasını kontrol edin.' })
+    }
+    const workerData = await workerRes.json()
+    res.json({
+      uploadUrl: workerData.uploadUrl,
+      publicUrl: workerData.publicUrl,
+      key: workerData.key,
+      file_name: Buffer.from(filename, 'latin1').toString('utf8')
+    })
+  } catch (error) {
+    console.error('Presigned revision URL error:', error)
+    res.status(500).json({ error: error.message || 'Presigned URL oluşturulamadı' })
+  }
+})
+
 export default router

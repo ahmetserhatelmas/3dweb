@@ -681,12 +681,80 @@
 }
 
 .file-icon.step { color: #10b981; }
+.file-icon.stl { color: #0ea5e9; }
 .file-icon.dxf { color: #f59e0b; }
 .file-icon.iges { color: #6366f1; }
 .file-icon.parasolid { color: #ec4899; }
 .file-icon.pdf { color: #ef4444; }
 .file-icon.excel { color: #22c55e; }
 .file-icon.image { color: #8b5cf6; }
+
+/* Proje dosyaları kategori filtre */
+.file-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+.file-category-filter .filter-icon {
+  color: var(--text-muted);
+  margin-right: 0.25rem;
+}
+.file-filter-btn {
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.file-filter-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.file-filter-btn.active {
+  border-color: var(--accent-primary);
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--accent-primary);
+}
+.file-filter-count {
+  margin-left: 0.2rem;
+  opacity: 0.9;
+}
+.files-list-by-category {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.file-category-section {
+  padding-bottom: 1rem;
+}
+.file-category-section .category-section-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+.file-category-section .category-section-header h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-secondary);
+}
+.panel-header-with-filter {
+  border-bottom: none;
+}
+
+.file-category-section .pasif-section-header h3,
+.pasif-section-header h3 {
+  color: var(--text-muted);
+}
 
 .file-card-info {
   flex: 1;
@@ -1329,6 +1397,11 @@
   color: #ef4444;
 }
 
+.quotation-status-badge.expired {
+  background: rgba(107, 114, 128, 0.2);
+  color: #9ca3af;
+}
+
 .quotation-details {
   display: flex;
   flex-direction: column;
@@ -1551,6 +1624,31 @@
   gap: 0.5rem;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.waiting-quote.expired {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.btn-extend-deadline {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: #0ea5e9;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-extend-deadline:hover:not(:disabled) {
+  background: rgba(14, 165, 233, 0.25);
+}
+
+.btn-extend-deadline:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Checklist Preview - müşteri için quotations panelinin altında */

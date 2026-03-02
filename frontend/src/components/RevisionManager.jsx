@@ -126,14 +126,14 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       let uploadedFilePath = null
       let uploadedFileName = null
 
-      // Upload file if geometry revision or both
+      // Upload file if geometry revision or both (presigned URL ile tarayıcıdan yükle – backend R2 SSL hatası önlenir)
       if ((revisionType === 'geometry' || revisionType === 'both') && newFile) {
-        console.log('Uploading file:', newFile.name)
-        const uploadResult = await api.uploadFile(newFile)
-        console.log('Upload result:', uploadResult)
-        uploadedFileUrl = uploadResult.url
-        uploadedFilePath = uploadResult.path
-        uploadedFileName = uploadResult.file_name || newFile.name // Use server response or original name
+        console.log('Getting presigned URL for:', newFile.name)
+        const { uploadUrl, publicUrl, key, file_name: serverFileName } = await api.getPresignedRevisionUploadUrl(newFile)
+        await api.uploadFileToPresignedUrl(newFile, uploadUrl)
+        uploadedFileUrl = publicUrl
+        uploadedFilePath = key
+        uploadedFileName = serverFileName || newFile.name
       }
 
       // Create revision request

@@ -1355,68 +1355,47 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
           
           console.log('💰 Contract total:', newTotal, 'from', formattedItems.length, 'items')
 
-          // Deactivate old contract file(s) - look for any PDF with "Sözleşme" or "contract" in name
+          // Eski sözleşme dosyalarını pasife al (Rev. A → Pasif dosyalar; sadece yeni Rev. B aktif kalsın)
+          // Hem file_type=pdf hem ad/açıklamada "sözleşme" geçenleri al (file_type bazen farklı kaydedilmiş olabiliyor)
           console.log('📄 Looking for old contracts to deactivate in project:', request.project_id)
           
-          // First, find all active PDF contracts
-          const { data: existingContracts, error: findError } = await supabaseAdmin
+          const { data: allActiveFiles, error: findError } = await supabaseAdmin
             .from('project_files')
-            .select('id, file_name, revision, is_active')
+            .select('id, file_name, revision, is_active, description, file_type')
             .eq('project_id', request.project_id)
-            .eq('file_type', 'pdf')
             .eq('is_active', true)
           
-          console.log('📄 Found existing active PDF files:', existingContracts)
+          const isContractLike = (f) => {
+            const typePdf = (f.file_type || '').toLowerCase() === 'pdf'
+            const name = (f.file_name || '').toLowerCase()
+            const desc = (f.description || '').toLowerCase()
+            const looksLikeContract = name.includes('sözleşme') || name.includes('sozlesme') || name.includes('contract') ||
+              desc.includes('sözleşme') || desc.includes('sozlesme') || (f.file_name && f.file_name.includes('📄'))
+            return typePdf || looksLikeContract
+          }
           
-          if (existingContracts && existingContracts.length > 0) {
-            // Filter for contracts (files containing Sözleşme, contract, or similar)
-            const contractFiles = existingContracts.filter(f => 
-              f.file_name.toLowerCase().includes('sözleşme') || 
-              f.file_name.toLowerCase().includes('sozlesme') ||
-              f.file_name.toLowerCase().includes('contract') ||
-              f.file_name.includes('📄')
-            )
+          const contractIds = (allActiveFiles || []).filter(isContractLike).map(c => c.id)
+          console.log('📄 Found active contract-like files:', contractIds.length, allActiveFiles?.filter(isContractLike))
+          
+          if (contractIds.length > 0) {
+            console.log('📄 Deactivating old contract file(s):', contractIds)
+            const { data: updateResult, error: deactivateError } = await supabaseAdmin
+              .from('project_files')
+              .update({ is_active: false, status: 'inactive' })
+              .in('id', contractIds)
+              .select('id, file_name, is_active, status')
             
-            console.log('📄 Contract files to deactivate:', contractFiles)
-            
-            for (const contract of contractFiles) {
-              console.log('📄 Attempting to deactivate contract:', contract.id, contract.file_name)
-              
-              const { data: updateResult, error: deactivateError } = await supabaseAdmin
-                .from('project_files')
-                .update({ is_active: false, status: 'inactive' })
-                .eq('id', contract.id)
-                .select()
-              
-              if (deactivateError) {
-                console.error('❌ Error deactivating contract:', contract.id, deactivateError)
-              } else {
-                console.log('✅ Deactivated old contract:', contract.file_name, 'Result:', updateResult)
-                
-                // Verify the update actually happened
-                const { data: verifyData } = await supabaseAdmin
+            if (deactivateError) {
+              console.error('❌ Error deactivating old contracts:', deactivateError)
+              for (const id of contractIds) {
+                const { error: singleErr } = await supabaseAdmin
                   .from('project_files')
-                  .select('id, file_name, is_active, status')
-                  .eq('id', contract.id)
-                  .single()
-                
-                console.log('🔍 Verification after update:', verifyData)
-                
-                if (verifyData?.is_active === true) {
-                  console.error('❌ CRITICAL: Contract still active after update! Trying RPC...')
-                  // Try with RPC as fallback - use correct function name
-                  const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('deactivate_project_file', { p_file_id: contract.id })
-                  console.log('📄 RPC deactivate result:', rpcResult, rpcError)
-                  
-                  // Verify again after RPC
-                  const { data: verifyData2 } = await supabaseAdmin
-                    .from('project_files')
-                    .select('id, file_name, is_active, status')
-                    .eq('id', contract.id)
-                    .single()
-                  console.log('🔍 Verification after RPC:', verifyData2)
-                }
+                  .update({ is_active: false, status: 'inactive' })
+                  .eq('id', id)
+                if (singleErr) console.error('❌ Deactivate single contract failed:', id, singleErr)
               }
+            } else {
+              console.log('✅ Deactivated old contract(s):', updateResult?.length, updateResult)
             }
           }
 
@@ -1432,7 +1411,8 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
             totalPrice: newTotal,
             deliveryDate: quotation.delivery_date || project.deadline,
             contractDate: new Date().toLocaleDateString('tr-TR'),
-            projectId: project.id
+            projectId: project.id,
+            paymentDueDate: project.payment_due_date || null
           }
 
           const pdfBuffer = await generateContractPDF(contractData)
@@ -1478,6 +1458,22 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
               console.error('❌ Contract save error:', insertError)
             } else {
               console.log('✅ New contract saved to project_files:', insertedContract?.id)
+              // İkinci geçiş: Hâlâ aktif kalan sözleşme benzeri dosyaları pasife al (sadece yeni eklenen hariç)
+              const { data: stillActive } = await supabaseAdmin
+                .from('project_files')
+                .select('id, file_name, file_type, description')
+                .eq('project_id', request.project_id)
+                .eq('is_active', true)
+                .neq('id', insertedContract.id)
+              const stillContractIds = (stillActive || []).filter(f =>
+                (f.file_type || '').toLowerCase() === 'pdf' ||
+                (f.file_name || '').toLowerCase().includes('sözleşme') ||
+                (f.description || '').toLowerCase().includes('sözleşme')
+              ).map(f => f.id)
+              if (stillContractIds.length > 0) {
+                await supabaseAdmin.from('project_files').update({ is_active: false, status: 'inactive' }).in('id', stillContractIds)
+                console.log('📄 Second pass: deactivated remaining old contracts:', stillContractIds)
+              }
             }
           }
         }

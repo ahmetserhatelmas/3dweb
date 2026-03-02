@@ -168,6 +168,14 @@ app.get('/api/health', async (req, res) => {
   res.status(statusCode).json(health)
 })
 
+// Public config for frontend (şifre sıfırlama sayfası vb. - VITE_* build'ta olmasa da çalışsın)
+app.get('/api/config', (req, res) => {
+  const url = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+  if (!url || !anonKey) return res.json({ supabaseUrl: null, supabaseAnonKey: null })
+  res.json({ supabaseUrl: url, supabaseAnonKey: anonKey })
+})
+
 // Contact form endpoint
 app.post('/api/contact', async (req, res) => {
   try {
