@@ -1,6 +1,7 @@
 import express from 'express'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken } from '../middleware/supabaseAuth.js'
+import { getR2ObjectSize } from '../lib/r2Storage.js'
 
 const router = express.Router()
 
@@ -65,15 +66,17 @@ router.post('/verify-email', async (req, res) => {
   }
 })
 
-// Login with username/password (with user_type: supplier, customer, or admin)
+// Login with username or email + password (with user_type: supplier, customer, or admin)
 router.post('/login', async (req, res) => {
   try {
     const { username, password, user_type } = req.body
-    
-    console.log('🔐 Login attempt:', { username, user_type })
+    const identifier = (username || '').trim()
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli.' })
+    const logId = identifier ? identifier.slice(0, 3) + '***' : ''
+    console.log('🔐 Login attempt:', { identifier: logId, user_type })
+
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'Kullanıcı adı/e-posta ve şifre gerekli.' })
     }
 
     if (!user_type || !['supplier', 'customer', 'admin'].includes(user_type)) {
@@ -81,68 +84,142 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Geçerli bir kullanıcı tipi seçiniz.' })
     }
 
-    let profile, profileError
+    const isEmail = identifier.includes('@')
+    let profile = null
+    let profileError = null
 
-    if (user_type === 'admin') {
-      // Admin login - check by username and role only (no user_type check)
-      console.log('🔍 Admin login - searching for:', username)
-      const result = await supabaseAdmin
-        .from('profiles')
-        .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
-        .eq('username', username)
-        .eq('role', 'admin')
-        .single()
-      
-      profile = result.data
-      profileError = result.error
-      console.log('Admin profile found:', !!profile)
-    } else {
-      // Supplier/Customer login - check by username and user_type
-      console.log('🔍 User login - searching for:', username, user_type)
-      const result = await supabaseAdmin
-        .from('profiles')
-        .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
-        .eq('username', username)
-        .eq('user_type', user_type)
-        .single()
-      
-      profile = result.data
-      profileError = result.error
-      console.log('User profile found:', !!profile)
-    }
+    if (isEmail) {
+      // Login by email: sign in with Supabase auth first, then load profile and check user_type
+      const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+        email: identifier,
+        password
+      })
 
-    if (profileError || !profile) {
-      const errorMessages = {
-        supplier: 'Tedarikçi hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
-        customer: 'Müşteri hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
-        admin: 'Admin hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.'
+      if (signInError) {
+        console.error('Login error (email):', signInError)
+        return res.status(401).json({ error: 'E-posta veya şifre hatalı.' })
       }
-      return res.status(401).json({ error: errorMessages[user_type] })
+
+      const authUserId = signInData.user?.id
+      if (!authUserId) return res.status(401).json({ error: 'E-posta veya şifre hatalı.' })
+
+      const result = await supabaseAdmin
+        .from('profiles')
+        .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+        .eq('id', authUserId)
+        .single()
+
+      profile = result.data
+      profileError = result.error
+
+      if (profileError || !profile) {
+        await supabaseAdmin.auth.signOut()
+        // E-posta Auth'da var ama profiles'da bu id ile kayıt yok (mailler Auth'da tutuluyor, profiles'da değil)
+        return res.status(401).json({
+          error: 'Bu e-posta ile giriş doğrulandı ancak uygulama hesabı (profiles) bulunamadı. Hesabınız yönetici tarafından tamamlanmamış olabilir.'
+        })
+      }
+
+      if (user_type === 'admin') {
+        if (profile.role !== 'admin') {
+          await supabaseAdmin.auth.signOut()
+          return res.status(401).json({ error: 'Admin hesabı değilsiniz.' })
+        }
+      } else {
+        if (profile.user_type !== user_type) {
+          await supabaseAdmin.auth.signOut()
+          const want = user_type === 'supplier' ? 'Tedarikçi' : 'Müşteri'
+          return res.status(401).json({ error: `Bu hesap ${want} girişi için uygun değil. Doğru giriş tipini seçin.` })
+        }
+      }
+    } else {
+      // Login by username: find profile then sign in with auth email
+      if (user_type === 'admin') {
+        const result = await supabaseAdmin
+          .from('profiles')
+          .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+          .eq('username', identifier)
+          .eq('role', 'admin')
+          .single()
+        profile = result.data
+        profileError = result.error
+      } else {
+        const result = await supabaseAdmin
+          .from('profiles')
+          .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+          .eq('username', identifier)
+          .eq('user_type', user_type)
+          .single()
+        profile = result.data
+        profileError = result.error
+      }
+
+      if (profileError || !profile) {
+        // Girilen değer e-posta gibi görünüyorsa (örn. @ var), e-posta ile dene; bazen istek farklı gidiyor
+        if (identifier.includes('@')) {
+          const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+            email: identifier,
+            password
+          })
+          if (!signInError && signInData?.user?.id) {
+            const res2 = await supabaseAdmin
+              .from('profiles')
+              .select('id, username, role, company_name, user_type, invite_code, is_customer_admin, customer_id')
+              .eq('id', signInData.user.id)
+              .single()
+            const p = res2.data
+            if (p && (user_type === 'admin' ? p.role === 'admin' : p.user_type === user_type)) {
+              profile = p
+              profileError = null
+            } else {
+              await supabaseAdmin.auth.signOut()
+              if (p && user_type !== 'admin' && p.user_type !== user_type) {
+                const want = user_type === 'supplier' ? 'Tedarikçi' : 'Müşteri'
+                return res.status(401).json({ error: `Bu hesap ${want} girişi için uygun değil. Doğru giriş tipini seçin.` })
+              }
+              return res.status(401).json({
+                error: 'Bu e-posta ile giriş doğrulandı ancak uygulama hesabı (profiles) bulunamadı veya giriş tipi uyuşmuyor.'
+              })
+            }
+          } else {
+            await supabaseAdmin.auth.signOut()
+            return res.status(401).json({ error: 'E-posta veya şifre hatalı.' })
+          }
+        }
+        if (!profile) {
+          const errorMessages = {
+            supplier: 'Tedarikçi hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
+            customer: 'Müşteri hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.',
+            admin: 'Admin hesabı bulunamadı. Lütfen bilgilerinizi kontrol edin.'
+          }
+          return res.status(401).json({ error: errorMessages[user_type] })
+        }
+      }
+
+      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id)
+      if (!authUser?.user) return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
+
+      const { error } = await supabaseAdmin.auth.signInWithPassword({
+        email: authUser.user.email,
+        password
+      })
+
+      if (error) {
+        console.error('Login error:', error)
+        return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
+      }
     }
 
-    // Get email from auth.users
-    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id)
-    
-    if (!authUser || !authUser.user) {
-      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
-    }
+    // Session already set by signInWithPassword; get current session for response
+    const { data: sessionData } = await supabaseAdmin.auth.getSession()
+    const session = sessionData?.session
+    if (!session) return res.status(401).json({ error: 'Oturum açılamadı.' })
 
-    // Try to login with email and password
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
-      email: authUser.user.email,
-      password
-    })
-
-    if (error) {
-      console.error('Login error:', error)
-      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı.' })
-    }
-
-    console.log('✅ Login successful:', { username, role: profile.role })
+    console.log('✅ Login successful:', { username: profile.username, role: profile.role })
 
     res.json({
-      token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
+      token: session.access_token,
+      refresh_token: session.refresh_token,
       user: {
         id: profile.id,
         username: profile.username,
@@ -156,6 +233,54 @@ router.post('/login', async (req, res) => {
     })
   } catch (error) {
     console.error('Login error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Şifre sıfırlama e-postası gönder (mail ile şifre sıfırlama)
+// user_type: 'supplier' | 'customer' | 'admin' — hangi giriş tipi için sıfırlama istendiği (UI bilgisi)
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email, user_type } = req.body
+    const emailTrimmed = (email || '').trim().toLowerCase()
+
+    if (!emailTrimmed) {
+      return res.status(400).json({ error: 'E-posta adresi gerekli.' })
+    }
+
+    const redirectUrl = process.env.FRONTEND_URL ||
+      (process.env.NODE_ENV === 'production' ? 'https://kunye.tech' : 'http://localhost:5173')
+    const resetUrl = `${redirectUrl}/reset-password`
+    if (user_type) {
+      console.log('Forgot password request for user_type:', user_type)
+    }
+
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(emailTrimmed, {
+      redirectTo: resetUrl
+    })
+
+    if (error) {
+      console.error('Forgot password error:', error)
+      // E-posta gönderilemedi (SMTP/limit) → kullanıcıya net mesaj ver
+      const isEmailDeliveryError = error.message?.includes('recovery email') ||
+        error.message?.includes('sending') ||
+        error.code === 'unexpected_failure'
+      if (isEmailDeliveryError) {
+        return res.status(503).json({
+          error: 'Şifre sıfırlama e-postası şu an gönderilemiyor. Lütfen bir süre sonra tekrar deneyin veya yönetici ile iletişime geçin.'
+        })
+      }
+      // Diğer hatalar (örn. geçersiz e-posta): güvenlik için genel mesaj
+      return res.status(200).json({
+        message: 'Bu e-posta kayıtlıysa, şifre sıfırlama bağlantısı gönderildi. E-posta kutunuzu kontrol edin.'
+      })
+    }
+
+    res.status(200).json({
+      message: 'Bu e-posta kayıtlıysa, şifre sıfırlama bağlantısı gönderildi. E-posta kutunuzu kontrol edin.'
+    })
+  } catch (error) {
+    console.error('Forgot password error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })
@@ -260,15 +385,20 @@ router.post('/register-public', async (req, res) => {
 
     // Create or update profile
     // Use upsert because trigger might have already created a profile
+    const profileRow = {
+      id: data.user.id,
+      username,
+      role: user_type === 'supplier' ? 'user' : 'customer',
+      user_type,
+      company_name: company_name || ''
+    }
+    if (user_type === 'customer') {
+      profileRow.plan_type = 'starter'
+      profileRow.plan_start_date = new Date().toISOString()
+    }
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .upsert({
-        id: data.user.id,
-        username,
-        role: user_type === 'supplier' ? 'user' : 'customer',
-        user_type,
-        company_name: company_name || ''
-      }, { onConflict: 'id' })
+      .upsert(profileRow, { onConflict: 'id' })
 
     if (profileError) {
       console.error('Profile create error:', profileError)
@@ -443,10 +573,20 @@ router.post('/register-supplier', authenticateToken, async (req, res) => {
 // Register new user (admin/customer only - requires auth)
 router.post('/register', authenticateToken, async (req, res) => {
   try {
-    const { password, username, role = 'user', company_name } = req.body
+    const { password, username, email, role = 'user', company_name } = req.body
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli.' })
+    }
+
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'E-posta adresi gerekli.' })
+    }
+
+    const emailTrimmed = email.trim().toLowerCase()
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(emailTrimmed)) {
+      return res.status(400).json({ error: 'Geçerli bir e-posta adresi giriniz.' })
     }
 
     // Check permissions: admin can create anyone, customer can only create users
@@ -459,12 +599,9 @@ router.post('/register', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Bu rol için admin yetkisi gerekli.' })
     }
 
-    // Generate email from username
-    const email = `${username.toLowerCase().replace(/\s/g, '')}@kunye.local`
-
     // Create user in Supabase Auth
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
+      email: emailTrimmed,
       password,
       email_confirm: true,
       user_metadata: {
@@ -499,15 +636,20 @@ router.post('/register', authenticateToken, async (req, res) => {
     }
 
     // Manually update profile if trigger didn't work
+    const profileRow = {
+      id: data.user.id,
+      username,
+      role,
+      company_name,
+      created_by: req.user.id
+    }
+    if (role === 'customer') {
+      profileRow.plan_type = 'starter'
+      profileRow.plan_start_date = new Date().toISOString()
+    }
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .upsert({
-        id: data.user.id,
-        username,
-        role,
-        company_name,
-        created_by: req.user.id
-      }, { onConflict: 'id' })
+      .upsert(profileRow, { onConflict: 'id' })
 
     if (profileError) {
       console.error('Profile update error:', profileError)
@@ -696,9 +838,10 @@ router.patch('/customers/:id/plan', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Bu işlem sadece müşteri hesapları için geçerlidir.' })
     }
 
-    // Update plan - only set plan_start_date if plan is changing
+    // Update plan - set plan_start_date to today when plan type actually changes (e.g. Starter → Business)
     const updateData = { plan_type }
-    if (customer.plan_type !== plan_type) {
+    const currentPlan = customer.plan_type || 'starter'
+    if (currentPlan !== plan_type) {
       updateData.plan_start_date = new Date().toISOString()
     }
 
@@ -1391,21 +1534,52 @@ router.get('/my-usage-stats', authenticateToken, async (req, res) => {
         .in('created_by', creatorIds)
         .gte('created_at', startOfMonth.toISOString())
 
-      // Calculate storage used
-      const { data: files, error: filesError } = await supabaseAdmin
-        .from('project_files')
-        .select('file_size, project:projects!inner(created_by)')
-        .in('project.created_by', creatorIds)
-        .eq('is_active', true)
+      // Calculate storage used: proje dosyaları + documents (müşteri projelerindeki)
+      const { data: customerProjects } = await supabaseAdmin
+        .from('projects')
+        .select('id')
+        .in('created_by', creatorIds)
 
-      if (filesError) {
-        console.error('Storage calculation error:', filesError)
+      const projectIds = (customerProjects || []).map(p => p.id)
+      let totalStorageBytes = 0
+      let storageFilesCount = 0
+
+      if (projectIds.length > 0) {
+        const { data: files, error: filesError } = await supabaseAdmin
+          .from('project_files')
+          .select('file_path, file_size')
+          .in('project_id', projectIds)
+          .eq('is_active', true)
+
+        if (filesError) console.error('Storage (project_files) error:', filesError)
+        const isR2Key = (path) => path && typeof path === 'string' && !path.startsWith('http') && (path.startsWith('temp/') || path.startsWith('revisions/') || path.startsWith('projects/'))
+        const fileSizes = await Promise.all((files || []).map(async (f) => {
+          const dbSize = Number(f.file_size) ?? Number(f.size) ?? 0
+          if (dbSize > 0) return dbSize
+          if (!isR2Key(f.file_path)) return 0
+          return (await getR2ObjectSize(f.file_path)) ?? 0
+        }))
+        totalStorageBytes += fileSizes.reduce((sum, n) => sum + n, 0)
+
+        const { data: docs, error: docsError } = await supabaseAdmin
+          .from('documents')
+          .select('file_size')
+          .in('project_id', projectIds)
+
+        if (docsError) console.error('Storage (documents) error:', docsError)
+        totalStorageBytes += (docs || []).reduce((sum, d) => sum + (Number(d.file_size) ?? Number(d.size) ?? 0), 0)
+
+        storageFilesCount = (files || []).length + (docs || []).length
+        if (totalStorageBytes === 0 && storageFilesCount > 0) {
+          console.log('Storage 0 but has files/documents - file_size may be null in DB. projectIds:', projectIds.length, 'files:', (files || []).length, 'docs:', (docs || []).length)
+        }
       }
 
-      const totalStorageBytes = files?.reduce((sum, f) => sum + (f.file_size || 0), 0) || 0
       const storageUsedGB = totalStorageBytes / (1024 * 1024 * 1024)
+      const storageUsedMB = Math.round(totalStorageBytes / (1024 * 1024))
+      const storageUnknown = totalStorageBytes === 0 && storageFilesCount > 0
 
-      res.json({
+      return res.json({
         plan_type: planType,
         plan_start_date: profile.plan_start_date,
         limits,
@@ -1413,7 +1587,10 @@ router.get('/my-usage-stats', authenticateToken, async (req, res) => {
           users: userCount || 0,
           suppliers: supplierCount || 0,
           rfq_this_month: rfqCount || 0,
-          storage_gb: parseFloat(storageUsedGB.toFixed(2))
+          storage_gb: parseFloat(storageUsedGB.toFixed(2)),
+          storage_mb: storageUsedMB,
+          storage_unknown: storageUnknown,
+          storage_files_count: storageFilesCount
         }
       })
     } else if (req.user.role === 'supplier' || req.user.role === 'user') {
@@ -1485,19 +1662,28 @@ router.get('/my-usage-stats', authenticateToken, async (req, res) => {
           .in('created_by', creatorIds)
           .gte('created_at', startOfMonth.toISOString())
 
-        // Calculate storage
-        const { data: files, error: filesError } = await supabaseAdmin
-          .from('project_files')
-          .select('file_size, project:projects!inner(created_by)')
-          .in('project.created_by', creatorIds)
-          .eq('is_active', true)
-
-        if (filesError) {
-          console.error('Storage calculation error:', filesError)
+        // Calculate storage (project_files + documents)
+        const { data: customerProjects } = await supabaseAdmin
+          .from('projects')
+          .select('id')
+          .in('created_by', creatorIds)
+        const projectIds = (customerProjects || []).map(p => p.id)
+        let totalStorageBytes = 0
+        if (projectIds.length > 0) {
+          const { data: files, error: filesError } = await supabaseAdmin
+            .from('project_files')
+            .select('file_size')
+            .in('project_id', projectIds)
+            .eq('is_active', true)
+          if (!filesError) totalStorageBytes += (files || []).reduce((sum, f) => sum + (Number(f.file_size) || 0), 0)
+          const { data: docs, error: docsError } = await supabaseAdmin
+            .from('documents')
+            .select('file_size')
+            .in('project_id', projectIds)
+          if (!docsError) totalStorageBytes += (docs || []).reduce((sum, d) => sum + (Number(d.file_size) || 0), 0)
         }
-
-        const totalStorageBytes = files?.reduce((sum, f) => sum + (f.file_size || 0), 0) || 0
         const storageUsedGB = totalStorageBytes / (1024 * 1024 * 1024)
+        const storageUsedMB = totalStorageBytes / (1024 * 1024)
 
         stats.push({
           customer_id: customerId,
@@ -1508,7 +1694,8 @@ router.get('/my-usage-stats', authenticateToken, async (req, res) => {
             users: userCount || 0,
             suppliers: supplierCount || 0,
             rfq_this_month: rfqCount || 0,
-            storage_gb: parseFloat(storageUsedGB.toFixed(2))
+            storage_gb: parseFloat(storageUsedGB.toFixed(2)),
+            storage_mb: Math.round(storageUsedMB)
           }
         })
       }

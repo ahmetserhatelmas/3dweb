@@ -375,6 +375,22 @@
   width: auto;
 }
 
+.footer-links {
+  margin-bottom: 0.75rem;
+}
+
+.footer-link {
+  color: #00d4aa;
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: color 0.2s;
+}
+
+.footer-link:hover {
+  color: #00b894;
+  text-decoration: underline;
+}
+
 .footer-copyright {
   color: rgba(255, 255, 255, 0.5);
   margin-bottom: 0.75rem;
@@ -510,6 +526,59 @@
 .btn-submit:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.link-forgot {
+  display: block;
+  width: 100%;
+  margin-bottom: 1rem;
+  background: none;
+  border: none;
+  color: #00d4aa;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: right;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.link-forgot:hover {
+  color: #00b894;
+  text-decoration: underline;
+}
+
+.modal-hint {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.forgot-success {
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 1rem;
+}
+
+.forgot-success p {
+  margin-bottom: 1rem;
+}
+
+.link-style {
+  color: #00d4aa !important;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.link-style:hover {
+  text-decoration: underline;
+}
+
+.forgot-back {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+  text-align: center;
 }
 
 /* Success Modal */

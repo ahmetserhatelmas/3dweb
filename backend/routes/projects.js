@@ -1,8 +1,17 @@
 import express from 'express'
+import { Readable } from 'stream'
+import { spawn } from 'child_process'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken, requireAdmin, requireAdminOrCustomer } from '../middleware/supabaseAuth.js'
+import { sendContractEmailToSupplier } from '../lib/email.js'
+import { getR2ObjectStream } from '../lib/r2Storage.js'
 
 const router = express.Router()
+
+// R2 key prefix check (project files stored in R2)
+function isR2Key(path) {
+  return path && typeof path === 'string' && (path.startsWith('temp/') || path.startsWith('projects/') || path.startsWith('revisions/'))
+}
 
 // Get all projects (admin sees all, customer sees their created projects, user sees only assigned/accepted)
 router.get('/', authenticateToken, async (req, res) => {
@@ -551,8 +560,14 @@ router.get('/:projectId/quotations', authenticateToken, async (req, res) => {
 
     console.log('Get project quotations:', { projectId, userId: req.user.id, role: req.user.role })
 
-    // Check if user is the project creator
-    const { data: project, error: projectError } = await supabaseAdmin
+    const { createClient } = await import('@supabase/supabase-js')
+    const freshClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const { data: project, error: projectError } = await freshClient
       .from('projects')
       .select('created_by')
       .eq('id', projectId)
@@ -562,8 +577,33 @@ router.get('/:projectId/quotations', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Proje bulunamadı.' })
     }
 
-    if (req.user.role !== 'admin' && project.created_by !== req.user.id) {
-      return res.status(403).json({ error: 'Bu projenin tekliflerini görme yetkiniz yok.' })
+    // Admin can access all; customer (and customer users) can access if project belongs to their org
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'customer') {
+        let allowedCreatorIds = [req.user.id]
+        if (req.user.customer_id) {
+          allowedCreatorIds.push(req.user.customer_id)
+          const { data: siblingUsers } = await freshClient
+            .from('customer_users')
+            .select('user_id')
+            .eq('customer_id', req.user.customer_id)
+            .eq('status', 'active')
+          if (siblingUsers?.length) allowedCreatorIds.push(...siblingUsers.map(u => u.user_id))
+        }
+        if (req.user.is_customer_admin) {
+          const { data: customerUsers } = await freshClient
+            .from('customer_users')
+            .select('user_id')
+            .eq('customer_id', req.user.id)
+            .eq('status', 'active')
+          if (customerUsers?.length) allowedCreatorIds.push(...customerUsers.map(u => u.user_id))
+        }
+        if (!allowedCreatorIds.includes(project.created_by)) {
+          return res.status(403).json({ error: 'Bu projenin tekliflerini görme yetkiniz yok.' })
+        }
+      } else if (project.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'Bu projenin tekliflerini görme yetkiniz yok.' })
+      }
     }
 
     // Get all quotations from project_suppliers (main table)
@@ -802,6 +842,7 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
             file_type: 'pdf',
             file_url: publicUrl,
             file_path: fileName,
+            file_size: pdfBuffer.length,
             description: 'Otomatik oluşturulan sözleşme',
             is_active: true,
             order_index: 999 // En sonda görünsün
@@ -811,6 +852,25 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
           console.error('❌ Contract file record error:', fileError)
         } else {
           console.log('✅ Contract saved to project_files')
+        }
+
+        // E-posta: tedarikçiye bildirim + sözleşme
+        try {
+          const { data: authUser } = await freshClient.auth.admin.getUserById(supplierId)
+          const supplierEmail = authUser?.user?.email
+          if (supplierEmail) {
+            await sendContractEmailToSupplier(
+              supplierEmail,
+              supplier.username || supplier.company_name || 'Tedarikçi',
+              project.name,
+              pdfBuffer,
+              publicUrl
+            )
+          } else {
+            console.warn('⚠️ Supplier has no email, contract notification skipped:', supplierId)
+          }
+        } catch (emailErr) {
+          console.error('❌ Contract email to supplier failed:', emailErr.message)
         }
       }
     } catch (pdfError) {
@@ -1152,6 +1212,143 @@ router.get('/:id', authenticateToken, async (req, res) => {
     })
   } catch (error) {
     console.error('Get project error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// Stream project file (avoids CORS when frontend fetches R2/Supabase URL)
+router.get('/:projectId/files/:fileId/stream', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, fileId } = req.params
+    const { createClient } = await import('@supabase/supabase-js')
+    const freshClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const { data: project, error: projErr } = await freshClient
+      .from('projects')
+      .select('id, created_by')
+      .eq('id', projectId)
+      .single()
+
+    if (projErr || !project) return res.status(404).json({ error: 'Proje bulunamadı.' })
+
+    if (req.user.role === 'admin') {
+      // ok
+    } else if (req.user.role === 'customer') {
+      let allowedCreatorIds = [req.user.id]
+      if (req.user.customer_id) allowedCreatorIds.push(req.user.customer_id)
+      if (req.user.is_customer_admin) {
+        const { data: customerUsers } = await freshClient.from('customer_users').select('user_id').eq('customer_id', req.user.id).eq('status', 'active')
+        if (customerUsers?.length) allowedCreatorIds.push(...customerUsers.map(u => u.user_id))
+      }
+      const { data: siblingUsers } = await freshClient.from('customer_users').select('user_id').eq('customer_id', req.user.customer_id).eq('status', 'active')
+      if (siblingUsers?.length) allowedCreatorIds.push(...siblingUsers.map(u => u.user_id))
+      if (!allowedCreatorIds.includes(project.created_by)) return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
+    } else if (req.user.role === 'user') {
+      const { data: supplierStatus } = await freshClient.from('project_suppliers').select('id').eq('project_id', projectId).eq('supplier_id', req.user.id).single()
+      if (!supplierStatus) return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
+    } else {
+      return res.status(403).json({ error: 'Yetkisiz.' })
+    }
+
+    const { data: fileRow, error: fileErr } = await freshClient
+      .from('project_files')
+      .select('file_path, file_url, file_name, file_type')
+      .eq('id', fileId)
+      .eq('project_id', projectId)
+      .single()
+
+    if (fileErr || !fileRow) return res.status(404).json({ error: 'Dosya bulunamadı.' })
+
+    const contentType = fileRow.file_type === 'step' || fileRow.file_type === 'stp'
+      ? 'application/octet-stream'
+      : fileRow.file_type === 'pdf'
+        ? 'application/pdf'
+        : 'application/octet-stream'
+
+    if (isR2Key(fileRow.file_path)) {
+      const workerBase = process.env.R2_WORKER_URL?.replace(/\/$/, '')
+      const r2PublicBase = process.env.R2_PUBLIC_URL?.replace(/\/$/, '')
+      const directUrl = (fileRow.file_url && fileRow.file_url.startsWith('http') && (fileRow.file_url.includes(r2PublicBase || 'r2.dev')))
+        ? fileRow.file_url
+        : r2PublicBase ? `${r2PublicBase}/${fileRow.file_path}` : null
+
+      if (workerBase) {
+        const workerFileUrl = `${workerBase}/file?key=${encodeURIComponent(fileRow.file_path)}`
+        try {
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 60000)
+          const wr = await fetch(workerFileUrl, { signal: controller.signal })
+          clearTimeout(timeoutId)
+          if (wr.ok) {
+            res.setHeader('Content-Type', wr.headers.get('content-type') || contentType)
+            res.setHeader('Cache-Control', 'private, max-age=3600')
+            const nodeStream = Readable.fromWeb(wr.body)
+            nodeStream.pipe(res)
+            return
+          }
+        } catch (e) {
+          if (process.env.NODE_ENV !== 'production') console.log('R2 Worker fetch failed:', e.message)
+        }
+      }
+
+      if (directUrl) {
+        const curl = spawn('curl', ['-fsSL', '-N', '--tlsv1.2', '--connect-timeout', '15', '--max-time', '120', directUrl], { stdio: ['ignore', 'pipe', 'pipe'] })
+        let sentHeaders = false
+        curl.stdout.on('data', (chunk) => {
+          if (!sentHeaders) {
+            if (process.env.NODE_ENV !== 'production') res.setHeader('X-Debug-Stream-Url', directUrl)
+            res.setHeader('Content-Type', contentType)
+            res.setHeader('Cache-Control', 'private, max-age=3600')
+            sentHeaders = true
+          }
+          res.write(chunk)
+        })
+        curl.stdout.on('end', () => { if (sentHeaders) res.end() })
+        curl.stderr.on('data', (d) => console.error('R2 curl stderr:', d?.toString()))
+        curl.on('error', (err) => {
+          console.error('R2 curl spawn error:', err)
+          if (!sentHeaders) res.status(502).json({ error: 'Dosya alınamadı.' })
+        })
+        curl.on('close', (code, signal) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('R2 curl close:', { code, signal, hadData: sentHeaders, url: directUrl?.slice(-60) })
+          }
+          if (!sentHeaders) res.status(502).json({ error: 'Dosya alınamadı.' })
+        })
+        req.on('close', () => { try { curl.kill() } catch (_) {} })
+        return
+      }
+      const streamData = await getR2ObjectStream(fileRow.file_path)
+      if (!streamData) return res.status(404).json({ error: 'Dosya depoda bulunamadı.' })
+      res.setHeader('Content-Type', streamData.contentType)
+      if (streamData.contentLength != null) res.setHeader('Content-Length', String(streamData.contentLength))
+      res.setHeader('Cache-Control', 'private, max-age=3600')
+      streamData.body.pipe(res)
+      return
+    }
+
+    if (fileRow.file_url) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000)
+      const resp = await fetch(fileRow.file_url, { signal: controller.signal })
+      clearTimeout(timeoutId)
+      if (!resp.ok) return res.status(502).json({ error: 'Dosya alınamadı.' })
+      const ct = resp.headers.get('content-type') || contentType
+      res.setHeader('Content-Type', ct)
+      res.setHeader('Cache-Control', 'private, max-age=3600')
+      const nodeStream = Readable.fromWeb(resp.body)
+      nodeStream.pipe(res)
+      return
+    }
+
+    return res.status(404).json({ error: 'Dosya URL bulunamadı.' })
+  } catch (error) {
+    if (error.name === 'AbortError') return res.status(504).json({ error: 'Dosya zaman aşımı.' })
+    console.error('Stream project file error:', error)
     res.status(500).json({ error: 'Sunucu hatası.' })
   }
 })

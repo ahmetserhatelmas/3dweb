@@ -2195,6 +2195,104 @@
   border-left: 2px solid var(--border-color);
 }
 
+/* Transposed: satırlar = kalem, sütunlar = tedarikçi */
+.comparison-table-transposed .comparison-table {
+  table-layout: fixed;
+}
+.comparison-table-transposed tbody tr {
+  min-height: 48px;
+}
+.comparison-table-transposed tbody td {
+  vertical-align: middle;
+}
+.comparison-table-transposed .label-col,
+.comparison-table-transposed .label-cell {
+  min-width: 180px;
+  max-width: 220px;
+  width: 200px;
+  text-align: left !important;
+  white-space: normal;
+  vertical-align: middle;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+.comparison-table-transposed .part-label .part-header,
+.comparison-table-transposed .extra-label .part-header {
+  justify-content: flex-start;
+  text-align: left;
+}
+.comparison-table-transposed thead .supplier-col,
+.comparison-table-transposed tbody .price-cell,
+.comparison-table-transposed tbody .delivery-cell,
+.comparison-table-transposed tbody .total-cell,
+.comparison-table-transposed tbody .actions-cell {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  box-sizing: border-box;
+  border-right: 1px solid var(--border-color);
+}
+.comparison-table-transposed thead tr th:last-child,
+.comparison-table-transposed tbody tr td:last-child {
+  border-right: none;
+}
+.comparison-table-transposed thead .label-col {
+  width: 200px !important;
+  min-width: 200px;
+  max-width: 200px;
+  box-sizing: border-box;
+  border-right: 2px solid var(--border-color);
+}
+.comparison-table-transposed tbody .label-cell {
+  width: 200px !important;
+  min-width: 200px;
+  max-width: 200px;
+  box-sizing: border-box;
+  border-right: 2px solid var(--border-color);
+}
+/* Fiyat / termin / toplam / işlem: hepsi aynı hizada, ortalı */
+.comparison-table-transposed .price-cell,
+.comparison-table-transposed .delivery-cell,
+.comparison-table-transposed .total-cell,
+.comparison-table-transposed .actions-cell {
+  vertical-align: middle;
+  padding: 0.6rem 0.5rem;
+  text-align: center !important;
+}
+.comparison-table-transposed thead .supplier-col {
+  text-align: center !important;
+  padding: 0.6rem 0.5rem;
+  border-right: 1px solid var(--border-color);
+}
+.comparison-table-transposed thead .supplier-col .supplier-info-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2px;
+}
+.comparison-table-transposed .price-info {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+.comparison-table-transposed .total-cell .total-price {
+  display: block;
+  text-align: center !important;
+}
+/* İşlem butonları hücrede tam ortalı */
+.comparison-table-transposed .actions-cell .action-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 auto;
+}
+
 .actions-col {
   min-width: 100px;
   border-left: 1px solid var(--border-color);
@@ -2349,6 +2447,38 @@
 .btn-mini:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Archive view (read-only comparison table) */
+.archive-detail-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.archive-detail-view .detail-header {
+  flex-shrink: 0;
+}
+.archive-table-section {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+}
+.archive-table-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.archive-detail-view .back-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
 }
 
 /* Responsive */

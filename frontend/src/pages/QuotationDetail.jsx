@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
+import { formatCurrencyInput, parseCurrency, formatCurrency } from '../lib/formatters'
 import { 
   ArrowLeft, FileText, Download, Calendar, Building2, 
   Clock, Send, CheckCircle, Box, FileSpreadsheet, Image, File, Eye, ChevronLeft,
@@ -628,7 +629,7 @@ export default function QuotationDetail() {
               {isQuoted && project.my_quotation_status && (
                 <div className="submitted-quote-compact">
                   <div className="compact-info">
-                    <span className="compact-price">₺{Number(project.my_quotation_status.quoted_price || 0).toLocaleString('tr-TR')}</span>
+                    <span className="compact-price">₺{formatCurrency(Number(project.my_quotation_status.quoted_price || 0))}</span>
                     <span className="compact-date">
                       {new Date(project.my_quotation_status.quoted_at).toLocaleDateString('tr-TR')}
                     </span>
@@ -666,12 +667,13 @@ export default function QuotationDetail() {
                             <div className="price-input-wrapper">
                               <span className="currency">₺</span>
                               <input
-                                type="number"
-                                value={fileItem.price}
-                                onChange={(e) => handleActiveFileItemChange('price', e.target.value)}
-                                placeholder="0.00"
-                                step="0.01"
-                                min="0"
+                                type="text"
+                                value={formatCurrencyInput(fileItem.price || '')}
+                                onChange={(e) => {
+                                  const formatted = formatCurrencyInput(e.target.value)
+                                  handleActiveFileItemChange('price', parseCurrency(formatted))
+                                }}
+                                placeholder="0,00"
                               />
                             </div>
                           </div>
@@ -684,7 +686,7 @@ export default function QuotationDetail() {
                             <span className="multiply-symbol">×</span>
                             <div className="total-info">
                               <span className="label">Toplam:</span>
-                              <span className="value">₺ {((parseFloat(fileItem.price) || 0) * (fileItem.quantity || 1)).toFixed(2)}</span>
+                              <span className="value">₺ {formatCurrency((parseFloat(fileItem.price) || 0) * (fileItem.quantity || 1))}</span>
                             </div>
                           </div>
                         </div>
@@ -740,9 +742,9 @@ export default function QuotationDetail() {
                         <div className="item-calculation-display">
                           {item.price ? (
                             <>
-                              <span className="unit-price">₺ {parseFloat(item.price).toFixed(2)}</span>
+                              <span className="unit-price">₺ {formatCurrency(parseFloat(item.price))}</span>
                               <span className="multiply">× {item.quantity || 1}</span>
-                              <span className="total-price">= ₺ {((parseFloat(item.price) || 0) * (item.quantity || 1)).toFixed(2)}</span>
+                              <span className="total-price">= ₺ {formatCurrency((parseFloat(item.price) || 0) * (item.quantity || 1))}</span>
                             </>
                           ) : (
                             <span className="no-price">Fiyat girilmedi</span>
@@ -782,12 +784,13 @@ export default function QuotationDetail() {
                             <div className="price-input-wrapper">
                               <span className="currency">₺</span>
                               <input
-                                type="number"
-                                value={item.price}
-                                onChange={(e) => handleItemChange(actualIndex, 'price', e.target.value)}
-                                placeholder="0.00"
-                                step="0.01"
-                                min="0"
+                                type="text"
+                                value={formatCurrencyInput(item.price || '')}
+                                onChange={(e) => {
+                                  const formatted = formatCurrencyInput(e.target.value)
+                                  handleItemChange(actualIndex, 'price', parseCurrency(formatted))
+                                }}
+                                placeholder="0,00"
                               />
                             </div>
                           </div>
@@ -831,7 +834,7 @@ export default function QuotationDetail() {
                   <div className="quote-summary">
                     <div className="total-price">
                       <span>Toplam Fiyat:</span>
-                      <span className="total-amount">₺ {calculateTotal().toFixed(2)}</span>
+                      <span className="total-amount">₺ {formatCurrency(calculateTotal())}</span>
                     </div>
                   </div>
 
@@ -928,7 +931,7 @@ export default function QuotationDetail() {
               <div className="summary-main-info">
                 <div className="summary-total">
                   <span className="summary-label">Toplam Teklif:</span>
-                  <span className="summary-total-price">₺{Number(project.my_quotation_status.quoted_price || 0).toLocaleString('tr-TR')}</span>
+                  <span className="summary-total-price">₺{formatCurrency(Number(project.my_quotation_status.quoted_price || 0))}</span>
                 </div>
                 <div className="summary-meta-row">
                   {project.my_quotation_status.delivery_date && (
@@ -973,11 +976,11 @@ export default function QuotationDetail() {
                             )}
                           </div>
                           <div className="summary-item-calc">
-                            <span className="summary-item-price">₺{Number(item.price || 0).toLocaleString('tr-TR')}</span>
+                            <span className="summary-item-price">₺{formatCurrency(Number(item.price || 0))}</span>
                             <span className="summary-item-multiply">×</span>
                             <span className="summary-item-qty">{item.quantity || 1}</span>
                             <span className="summary-item-equals">=</span>
-                            <span className="summary-item-total">₺{itemTotal.toLocaleString('tr-TR')}</span>
+                            <span className="summary-item-total">₺{formatCurrency(itemTotal)}</span>
                           </div>
                         </div>
                       )

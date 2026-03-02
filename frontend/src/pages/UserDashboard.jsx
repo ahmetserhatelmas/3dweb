@@ -332,7 +332,10 @@ export default function UserDashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Depolama</span>
                       <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>
-                        {customerStat.usage.storage_gb}/{customerStat.limits.storage_gb} GB
+                        {customerStat.usage.storage_gb >= 1
+                        ? `${customerStat.usage.storage_gb} GB`
+                        : (customerStat.usage.storage_mb > 0 ? `${customerStat.usage.storage_mb} MB` : '0 MB')
+                      }/{customerStat.limits.storage_gb} GB
                       </span>
                     </div>
                     <div style={{ 

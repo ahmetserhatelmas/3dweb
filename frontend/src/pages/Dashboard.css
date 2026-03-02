@@ -263,11 +263,117 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Filter row with view toggle */
+.filter-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.view-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.view-toggle-btn.active {
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--accent-primary);
+}
+
 /* Projects Grid */
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 1rem;
+}
+
+/* Projects List (Google Drive style list view) */
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.project-card-list {
+  flex-direction: row;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  gap: 1.5rem;
+  min-height: auto;
+}
+
+.project-card-list .project-card-header {
+  flex-shrink: 0;
+  order: 0;
+}
+
+.project-card-list .project-name {
+  flex: 1;
+  min-width: 0;
+  order: 1;
+  margin: 0;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-list .project-meta {
+  flex: 1;
+  min-width: 0;
+  order: 2;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.project-card-list .project-meta .meta-item {
+  margin: 0;
+}
+
+.project-card-list .project-progress,
+.project-card-list .card-arrow {
+  order: 3;
+  flex-shrink: 0;
+}
+
+.project-card-list .project-progress {
+  min-width: 100px;
+}
+
+.project-card-list .project-progress .progress-bar {
+  height: 6px;
+}
+
+.project-card-list:hover {
+  transform: none;
 }
 
 .project-card {

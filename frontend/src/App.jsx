@@ -11,8 +11,11 @@ import ProjectDetail from './pages/ProjectDetail'
 import NewProject from './pages/NewProject'
 import Users from './pages/Users'
 import CustomerUsers from './pages/CustomerUsers'
+import CustomerArchive from './pages/CustomerArchive'
 import Quotations from './pages/Quotations'
 import QuotationDetail from './pages/QuotationDetail'
+import KVKK from './pages/KVKK'
+import ResetPassword from './pages/ResetPassword'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth()
@@ -61,6 +64,8 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/auth/confirm" element={<EmailConfirm />} />
       <Route path="/invite/:inviteCode" element={<InviteAccept />} />
+      <Route path="/kvkk" element={<KVKK />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       
       {/* Admin Routes */}
       <Route path="/admin" element={
@@ -103,6 +108,17 @@ export default function App() {
       <Route path="/customer/users" element={
         <ProtectedRoute allowedRoles={['customer']}>
           <CustomerUsers />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/customer/archive" element={
+        <ProtectedRoute allowedRoles={['customer']}>
+          <CustomerArchive />
+        </ProtectedRoute>
+      } />
+      <Route path="/customer/archive/:projectId" element={
+        <ProtectedRoute allowedRoles={['customer']}>
+          <CustomerArchive />
         </ProtectedRoute>
       } />
       

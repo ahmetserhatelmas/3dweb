@@ -672,15 +672,19 @@ export default function ProjectDetail() {
     setViewMode('files')
   }
 
-  // Render file preview based on type
-  const renderFilePreview = (file) => {
+  // R2: pub-xxx.r2.dev hem backend hem tarayıcıda TLS hatası verebiliyor; her zaman backend stream kullan (Worker veya curl).
+  const renderFilePreview = (file, opts = {}) => {
     if (!file) return null
+    const useStream = opts.projectId && opts.fileId && opts.token
+    const streamUrl = useStream ? `${API_URL}/api/projects/${opts.projectId}/files/${opts.fileId}/stream` : null
+    const fetchOptions = useStream ? { headers: { Authorization: `Bearer ${opts.token}` } } : undefined
+    const fileUrl = streamUrl || file.file_url
 
     switch (file.file_type) {
       case 'step':
-        return <StepViewer fileUrl={file.file_url} />
+        return <StepViewer fileUrl={fileUrl} fetchOptions={fetchOptions} />
       case 'dxf':
-        return <DxfViewer fileUrl={file.file_url} fileName={file.file_name} />
+        return <DxfViewer fileUrl={fileUrl} fileName={file.file_name} fetchOptions={fetchOptions} />
       case 'iges':
       case 'parasolid':
         return (
@@ -1034,13 +1038,18 @@ export default function ProjectDetail() {
                     <span className="inactive-badge">PASİF</span>
                   )}
                 </span>
-                {activeFile.file_url && activeFile.status !== 'pending' && (
+                {(activeFile.file_url || (project?.id && activeFile?.id)) && activeFile.status !== 'pending' && (
                   <button 
                     className="download-file-btn"
                     title="Dosyayı İndir"
                     onClick={async () => {
                       try {
-                        const response = await fetch(activeFile.file_url)
+                        const downloadUrl = (project?.id && activeFile?.id && token)
+                          ? `${API_URL}/api/projects/${project.id}/files/${activeFile.id}/stream`
+                          : activeFile.file_url
+                        const headers = token ? { Authorization: `Bearer ${token}` } : {}
+                        const response = await fetch(downloadUrl, { headers })
+                        if (!response.ok) throw new Error('İndirilemedi')
                         const blob = await response.blob()
                         const url = window.URL.createObjectURL(blob)
                         const a = document.createElement('a')
@@ -1052,7 +1061,7 @@ export default function ProjectDetail() {
                         document.body.removeChild(a)
                       } catch (err) {
                         console.error('Download error:', err)
-                        window.open(activeFile.file_url, '_blank')
+                        if (activeFile.file_url) window.open(activeFile.file_url, '_blank')
                       }
                     }}
                   >
@@ -1061,7 +1070,7 @@ export default function ProjectDetail() {
                 )}
               </div>
               <div className="viewer-container">
-                {renderFilePreview(activeFile)}
+                {renderFilePreview(activeFile, { projectId: project?.id, fileId: activeFile?.id, token })}
               </div>
               {activeFile.notes && (
                 <div className="file-notes">
@@ -1731,71 +1740,65 @@ export default function ProjectDetail() {
                     <p>Henüz teklif gelmedi</p>
                   </div>
                 ) : (
-                  <div className="comparison-table-wrapper">
+                  <div className="comparison-table-wrapper comparison-table-transposed">
                     <table className="comparison-table">
+                      <colgroup>
+                        <col style={{ width: '200px' }} />
+                        {quotedSuppliers.map((_, i) => (
+                          <col key={i} style={{ width: '160px' }} />
+                        ))}
+                      </colgroup>
                       <thead>
                         <tr>
-                          <th className="sticky-col supplier-col">Tedarikçi</th>
-                          <th className="delivery-col">Termin</th>
-                          {allFileItems.map((file, idx) => (
-                            <th key={idx} className="part-col">
-                              <div className="part-header">
-                                <Box size={12} />
-                                <span className="part-name" title={file.file_name}>
-                                  {file.file_name.length > 20 
-                                    ? file.file_name.substring(0, 17) + '...' 
-                                    : file.file_name}
-                                </span>
-                                {file.revision && <span className="part-rev">Rev.{file.revision}</span>}
-                                <span className="part-qty">x{file.quantity || 1}</span>
+                          <th className="sticky-col label-col">Kalem</th>
+                          {quotedSuppliers.map((quotation) => (
+                            <th key={quotation.id} className="supplier-col">
+                              <div className="supplier-info-cell">
+                                <span className="supplier-name">{quotation.supplier?.username}</span>
+                                {quotation.supplier?.company_name && (
+                                  <span className="supplier-company">{quotation.supplier.company_name}</span>
+                                )}
                               </div>
                             </th>
                           ))}
-                          {Array.from(allExtraItems).map((title, idx) => (
-                            <th key={`extra-${idx}`} className="extra-col">
-                              <div className="part-header extra">
-                                <Plus size={12} />
-                                <span className="part-name">{title}</span>
-                              </div>
-                            </th>
-                          ))}
-                          <th className="total-col">Toplam</th>
-                          <th className="actions-col">İşlem</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {quotedSuppliers.map((quotation) => {
-                          const items = quotation.quotation?.[0]?.quotation_items || []
-                          const totalPrice = Number(quotation.quotation?.[0]?.total_price || quotation.quoted_price || 0)
-                          
-                          // Create a map for quick lookup
-                          const itemsMap = {}
-                          const extrasMap = {}
-                          items.forEach(item => {
-                            if (item.item_type === 'file' && item.file_id) {
-                              itemsMap[item.file_id] = item
-                            } else if (item.item_type === 'extra') {
-                              extrasMap[item.title] = item
-                            }
-                          })
-
+                        <tr>
+                          <td className="sticky-col label-cell">Termin</td>
+                          {quotedSuppliers.map((quotation) => (
+                            <td key={quotation.id} className="delivery-cell">
+                              {quotation.delivery_date
+                                ? new Date(quotation.delivery_date).toLocaleDateString('tr-TR')
+                                : '-'}
+                            </td>
+                          ))}
+                        </tr>
+                        {allFileItems.map((file, idx) => {
+                          const label = (
+                            <>
+                              <Box size={12} />
+                              <span className="part-name" title={file.file_name}>
+                                {file.file_name.length > 20 ? file.file_name.substring(0, 17) + '...' : file.file_name}
+                              </span>
+                              {file.revision && <span className="part-rev">Rev.{file.revision}</span>}
+                              <span className="part-qty">x{file.quantity || 1}</span>
+                            </>
+                          )
                           return (
-                            <tr key={quotation.id}>
-                              <td className="sticky-col supplier-cell">
-                                <div className="supplier-info-cell">
-                                  <span className="supplier-name">{quotation.supplier?.username}</span>
-                                  <span className="supplier-company">{quotation.supplier?.company_name}</span>
-                                </div>
+                            <tr key={idx}>
+                              <td className="sticky-col label-cell part-label">
+                                <div className="part-header">{label}</div>
                               </td>
-                              <td className="delivery-cell">
-                                {quotation.delivery_date 
-                                  ? new Date(quotation.delivery_date).toLocaleDateString('tr-TR')
-                                  : '-'}
-                              </td>
-                              {allFileItems.map((file, idx) => {
+                              {quotedSuppliers.map((quotation) => {
+                                const items = quotation.quotation?.[0]?.quotation_items || []
+                                const itemsMap = {}
+                                items.forEach(item => {
+                                  if (item.item_type === 'file' && item.file_id) itemsMap[item.file_id] = item
+                                })
                                 const item = itemsMap[file.file_id]
                                 return (
-                                  <td key={idx} className="price-cell">
+                                  <td key={quotation.id} className="price-cell">
                                     {item ? (
                                       <div className="price-info">
                                         <span className="unit-price">₺{Number(item.price).toFixed(0)}</span>
@@ -1809,50 +1812,75 @@ export default function ProjectDetail() {
                                   </td>
                                 )
                               })}
-                              {Array.from(allExtraItems).map((title, idx) => {
-                                const item = extrasMap[title]
-                                return (
-                                  <td key={`extra-${idx}`} className="price-cell extra-cell">
-                                    {item ? (
-                                      <span className="extra-price">₺{Number(item.price).toLocaleString('tr-TR')}</span>
-                                    ) : (
-                                      <span className="no-price">-</span>
-                                    )}
-                                  </td>
-                                )
-                              })}
-                              <td className="total-cell">
-                                <span className="total-price">₺{totalPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
-                              </td>
-                              <td className="actions-cell">
-                                <div className="action-buttons">
-                                  <button 
-                                    className="btn-mini btn-accept-mini"
-                                    onClick={() => {
-                                      setShowQuotationDetailsModal(false)
-                                      handleAcceptQuotation(quotation.supplier?.id)
-                                    }}
-                                    disabled={processingQuotation === quotation.supplier?.id}
-                                    title="Kabul Et"
-                                  >
-                                    <CheckCheck size={14} />
-                                  </button>
-                                  <button 
-                                    className="btn-mini btn-reject-mini"
-                                    onClick={() => {
-                                      setShowQuotationDetailsModal(false)
-                                      handleRejectQuotation(quotation.supplier?.id)
-                                    }}
-                                    disabled={processingQuotation === quotation.supplier?.id}
-                                    title="Reddet"
-                                  >
-                                    <XCircle size={14} />
-                                  </button>
-                                </div>
-                              </td>
                             </tr>
                           )
                         })}
+                        {/* Tek satır: Ek İş — tedarikçinin tüm ek işlerinin toplamı */}
+                        <tr>
+                          <td className="sticky-col label-cell extra-label">
+                            <div className="part-header extra">
+                              <Plus size={12} />
+                              <span className="part-name">Ek İş</span>
+                            </div>
+                          </td>
+                          {quotedSuppliers.map((quotation) => {
+                            const items = quotation.quotation?.[0]?.quotation_items || []
+                            const extraTotal = items
+                              .filter(item => item.item_type === 'extra')
+                              .reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity || 1)), 0)
+                            return (
+                              <td key={quotation.id} className="price-cell extra-cell">
+                                {extraTotal > 0 ? (
+                                  <span className="extra-price">₺{extraTotal.toLocaleString('tr-TR')}</span>
+                                ) : (
+                                  <span className="no-price">-</span>
+                                )}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                        <tr>
+                          <td className="sticky-col label-cell">Toplam</td>
+                          {quotedSuppliers.map((quotation) => {
+                            const totalPrice = Number(quotation.quotation?.[0]?.total_price || quotation.quoted_price || 0)
+                            return (
+                              <td key={quotation.id} className="total-cell">
+                                <span className="total-price">₺{totalPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                        <tr>
+                          <td className="sticky-col label-cell">İşlem</td>
+                          {quotedSuppliers.map((quotation) => (
+                            <td key={quotation.id} className="actions-cell">
+                              <div className="action-buttons">
+                                <button
+                                  className="btn-mini btn-accept-mini"
+                                  onClick={() => {
+                                    setShowQuotationDetailsModal(false)
+                                    handleAcceptQuotation(quotation.supplier?.id)
+                                  }}
+                                  disabled={processingQuotation === quotation.supplier?.id}
+                                  title="Kabul Et"
+                                >
+                                  <CheckCheck size={14} />
+                                </button>
+                                <button
+                                  className="btn-mini btn-reject-mini"
+                                  onClick={() => {
+                                    setShowQuotationDetailsModal(false)
+                                    handleRejectQuotation(quotation.supplier?.id)
+                                  }}
+                                  disabled={processingQuotation === quotation.supplier?.id}
+                                  title="Reddet"
+                                >
+                                  <XCircle size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
                       </tbody>
                     </table>
                   </div>

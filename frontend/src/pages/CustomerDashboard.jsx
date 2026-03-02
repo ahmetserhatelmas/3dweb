@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Clock, CheckCircle, 
-  Eye, FileBox, Users, Calendar, ChevronRight, UserPlus, Copy, Check, Link as LinkIcon
+  Eye, FileBox, Users, Calendar, ChevronRight, UserPlus, Copy, Check, Link as LinkIcon,
+  LayoutGrid, List, DollarSign
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
@@ -16,6 +17,7 @@ export default function CustomerDashboard() {
   const [loading, setLoading] = useState(true)
   const [loadingSuppliers, setLoadingSuppliers] = useState(false)
   const [filter, setFilter] = useState('all')
+  const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
   const [copiedInvite, setCopiedInvite] = useState(false)
   const [showInviteSection, setShowInviteSection] = useState(false)
   
@@ -127,6 +129,10 @@ export default function CustomerDashboard() {
             <UserPlus size={20} />
             <span>Kullanıcılar</span>
           </Link>
+          <Link to="/customer/archive" className="nav-item">
+            <DollarSign size={20} />
+            <span>Arşiv Teklifler</span>
+          </Link>
         </nav>
 
         <div className="sidebar-footer">
@@ -196,154 +202,165 @@ export default function CustomerDashboard() {
           </div>
         </div>
 
-        {/* Plan Usage Stats */}
-        {usageStats && (
-          <div style={{
-            background: 'var(--card-bg)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '12px',
-            padding: '1.5rem',
-            marginBottom: '1.5rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <span style={{ fontSize: '1.5rem' }}>
-                  {usageStats.plan_type === 'business' ? '🏢' : '⚡'}
-                </span>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>
-                    {usageStats.plan_type === 'business' ? 'Business Plan' : 'Starter Plan'}
-                  </h3>
-                  {usageStats.plan_start_date && (
-                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Başlangıç: {new Date(usageStats.plan_start_date).toLocaleDateString('tr-TR')}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              {/* Users */}
+        {/* Plan Usage Stats - always visible, skeleton while loading */}
+        <div style={{
+          background: 'var(--card-bg)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '12px',
+          padding: '1.5rem',
+          marginBottom: '1.5rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>
+                {usageStats ? (usageStats.plan_type === 'business' ? '🏢' : '⚡') : '—'}
+              </span>
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Kullanıcılar</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
-                    {usageStats.usage.users} / {usageStats.limits.users}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: '8px', 
-                  background: 'var(--bg-secondary)', 
-                  borderRadius: '4px', 
-                  overflow: 'hidden' 
-                }}>
-                  <div style={{ 
-                    height: '100%', 
-                    width: `${Math.min((usageStats.usage.users / usageStats.limits.users) * 100, 100)}%`,
-                    background: usageStats.usage.users >= usageStats.limits.users ? '#ef4444' : '#3b82f6',
-                    transition: 'width 0.3s'
-                  }} />
-                </div>
-              </div>
-
-              {/* Suppliers */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Tedarikçiler</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
-                    {usageStats.usage.suppliers} / {usageStats.limits.suppliers}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: '8px', 
-                  background: 'var(--bg-secondary)', 
-                  borderRadius: '4px', 
-                  overflow: 'hidden' 
-                }}>
-                  <div style={{ 
-                    height: '100%', 
-                    width: `${Math.min((usageStats.usage.suppliers / usageStats.limits.suppliers) * 100, 100)}%`,
-                    background: usageStats.usage.suppliers >= usageStats.limits.suppliers ? '#ef4444' : '#10b981',
-                    transition: 'width 0.3s'
-                  }} />
-                </div>
-              </div>
-
-              {/* RFQ This Month */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>RFQ (Bu Ay)</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
-                    {usageStats.usage.rfq_this_month} / {usageStats.limits.rfq_per_month}
-                  </span>
-                </div>
-                <div style={{ 
-                  height: '8px', 
-                  background: 'var(--bg-secondary)', 
-                  borderRadius: '4px', 
-                  overflow: 'hidden' 
-                }}>
-                  <div style={{ 
-                    height: '100%', 
-                    width: `${Math.min((usageStats.usage.rfq_this_month / usageStats.limits.rfq_per_month) * 100, 100)}%`,
-                    background: usageStats.usage.rfq_this_month >= usageStats.limits.rfq_per_month ? '#ef4444' : '#f59e0b',
-                    transition: 'width 0.3s'
-                  }} />
-                </div>
-              </div>
-
-              {/* Storage */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Depolama</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
-                    {usageStats.usage.storage_gb} / {usageStats.limits.storage_gb} GB
-                  </span>
-                </div>
-                <div style={{ 
-                  height: '8px', 
-                  background: 'var(--bg-secondary)', 
-                  borderRadius: '4px', 
-                  overflow: 'hidden' 
-                }}>
-                  <div style={{ 
-                    height: '100%', 
-                    width: `${Math.min((usageStats.usage.storage_gb / usageStats.limits.storage_gb) * 100, 100)}%`,
-                    background: usageStats.usage.storage_gb >= usageStats.limits.storage_gb ? '#ef4444' : '#8b5cf6',
-                    transition: 'width 0.3s'
-                  }} />
-                </div>
+                <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: '600' }}>
+                  {usageStats ? (usageStats.plan_type === 'business' ? 'Business Plan' : 'Starter Plan') : 'Plan'}
+                </h3>
+                {usageStats?.plan_start_date ? (
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Başlangıç: {new Date(usageStats.plan_start_date).toLocaleDateString('tr-TR')}
+                  </p>
+                ) : loadingStats ? (
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', opacity: 0.6 }}>Yükleniyor...</p>
+                ) : null}
               </div>
             </div>
           </div>
-        )}
 
-        <div className="filter-tabs">
-          <button 
-            className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            Tümü ({stats.total})
-          </button>
-          <button 
-            className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
-            onClick={() => setFilter('pending')}
-          >
-            Bekleyen ({stats.pending})
-          </button>
-          <button 
-            className={`filter-tab ${filter === 'reviewing' ? 'active' : ''}`}
-            onClick={() => setFilter('reviewing')}
-          >
-            İnceleniyor ({stats.reviewing})
-          </button>
-          <button 
-            className={`filter-tab ${filter === 'completed' ? 'active' : ''}`}
-            onClick={() => setFilter('completed')}
-          >
-            Tamamlandı ({stats.completed})
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            {/* Users */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Kullanıcılar</span>
+                <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                  {usageStats ? `${usageStats.usage.users} / ${usageStats.limits.users}` : '—'}
+                </span>
+              </div>
+              <div style={{ height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: usageStats ? `${Math.min((usageStats.usage.users / usageStats.limits.users) * 100, 100)}%` : '0%',
+                  background: usageStats && usageStats.usage.users >= usageStats.limits.users ? '#ef4444' : '#3b82f6',
+                  transition: 'width 0.3s'
+                }} />
+              </div>
+            </div>
+
+            {/* Suppliers */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Tedarikçiler</span>
+                <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                  {usageStats ? `${usageStats.usage.suppliers} / ${usageStats.limits.suppliers}` : '—'}
+                </span>
+              </div>
+              <div style={{ height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: usageStats ? `${Math.min((usageStats.usage.suppliers / usageStats.limits.suppliers) * 100, 100)}%` : '0%',
+                  background: usageStats && usageStats.usage.suppliers >= usageStats.limits.suppliers ? '#ef4444' : '#10b981',
+                  transition: 'width 0.3s'
+                }} />
+              </div>
+            </div>
+
+            {/* RFQ This Month */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>RFQ (Bu Ay)</span>
+                <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                  {usageStats ? `${usageStats.usage.rfq_this_month} / ${usageStats.limits.rfq_per_month}` : '—'}
+                </span>
+              </div>
+              <div style={{ height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: usageStats ? `${Math.min((usageStats.usage.rfq_this_month / usageStats.limits.rfq_per_month) * 100, 100)}%` : '0%',
+                  background: usageStats && usageStats.usage.rfq_this_month >= usageStats.limits.rfq_per_month ? '#ef4444' : '#f59e0b',
+                  transition: 'width 0.3s'
+                }} />
+              </div>
+            </div>
+
+            {/* Storage */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Depolama</span>
+                <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                  {usageStats ? (() => {
+                    const gb = usageStats.usage.storage_gb ?? 0
+                    const mb = usageStats.usage.storage_mb ?? 0
+                    const limitGb = usageStats.limits.storage_gb ?? 10
+                    const used = gb >= 1 ? `${gb} GB` : `${mb} MB`
+                    return `${used} / ${limitGb} GB`
+                  })() : '—'}
+                </span>
+              </div>
+              <div style={{ height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: usageStats ? `${Math.min(((usageStats.usage.storage_gb ?? 0) / (usageStats.limits.storage_gb ?? 10)) * 100, 100)}%` : '0%',
+                  background: usageStats && (usageStats.usage.storage_gb ?? 0) >= (usageStats.limits.storage_gb ?? 10) ? '#ef4444' : '#8b5cf6',
+                  transition: 'width 0.3s'
+                }} />
+              </div>
+              {usageStats?.usage?.storage_unknown && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  Eski dosyaların boyutu veritabanında kayıtlı değil; yeni yüklemeler sayılır.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="filter-tabs-row">
+          <div className="filter-tabs">
+            <button 
+              className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              Tümü ({stats.total})
+            </button>
+            <button 
+              className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
+              onClick={() => setFilter('pending')}
+            >
+              Bekleyen ({stats.pending})
+            </button>
+            <button 
+              className={`filter-tab ${filter === 'reviewing' ? 'active' : ''}`}
+              onClick={() => setFilter('reviewing')}
+            >
+              İnceleniyor ({stats.reviewing})
+            </button>
+            <button 
+              className={`filter-tab ${filter === 'completed' ? 'active' : ''}`}
+              onClick={() => setFilter('completed')}
+            >
+              Tamamlandı ({stats.completed})
+            </button>
+          </div>
+          <div className="view-toggle" title={viewMode === 'grid' ? 'Izgara görünümü' : 'Liste görünümü'}>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              aria-label="Izgara görünümü"
+            >
+              <LayoutGrid size={20} />
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => setViewMode('list')}
+              aria-label="Liste görünümü"
+            >
+              <List size={20} />
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -357,9 +374,9 @@ export default function CustomerDashboard() {
             <p>İlk projenizi oluşturmak için "Yeni Proje" butonuna tıklayın.</p>
           </div>
         ) : (
-          <div className="projects-grid stagger-children">
+          <div className={`stagger-children ${viewMode === 'list' ? 'projects-list' : 'projects-grid'}`}>
             {filteredProjects.map(project => (
-              <Link to={`/project/${project.id}`} key={project.id} className="project-card">
+              <Link to={`/project/${project.id}`} key={project.id} className={`project-card ${viewMode === 'list' ? 'project-card-list' : ''}`}>
                 <div className="project-card-header">
                   <span className={`badge ${getStatusBadge(project.status).class}`}>
                     {getStatusBadge(project.status).label}
@@ -380,13 +397,10 @@ export default function CustomerDashboard() {
                   <div className="meta-item">
                     <Users size={16} />
                     <span>
-                      {/* Bekliyor durumunda tüm atananları, kabul edildiyse sadece kabul edileni göster */}
                       {project.project_suppliers && project.project_suppliers.length > 0 ? (
                         project.status === 'pending' && project.is_quotation ? (
-                          // Bekliyor: Tüm atanan tedarikçileri göster
                           project.project_suppliers.map(ps => ps.supplier?.company_name || ps.supplier?.username).join(', ')
                         ) : (
-                          // Kabul edildi: Sadece accepted olanı göster
                           project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.company_name ||
                           project.project_suppliers.find(ps => ps.status === 'accepted')?.supplier?.username ||
                           project.supplier_name ||
@@ -406,22 +420,17 @@ export default function CustomerDashboard() {
                       </span>
                     </div>
                   )}
-                  {/* Show accepted quotation price */}
-                  {project.project_suppliers && project.project_suppliers.length > 0 && (
-                    (() => {
-                      const acceptedSupplier = project.project_suppliers.find(ps => ps.status === 'accepted')
-                      if (acceptedSupplier && acceptedSupplier.quoted_price) {
-                        return (
-                          <div className="meta-item price">
-                            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: '#10b981' }}>
-                              Fiyat: {acceptedSupplier.quoted_price.toLocaleString('tr-TR')}₺
-                            </span>
-                          </div>
-                        )
-                      }
-                      return null
-                    })()
-                  )}
+                  {(() => {
+                    const accepted = project.project_suppliers?.find(ps => ps.status === 'accepted')
+                    if (!accepted?.quoted_price) return null
+                    return (
+                      <div className="meta-item price">
+                        <span style={{ fontSize: '0.9rem', fontWeight: '600', color: '#10b981' }}>
+                          Fiyat: {accepted.quoted_price.toLocaleString('tr-TR')}₺
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {project.total_items > 0 && (

@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import DxfParser from 'dxf-parser'
 
-export default function DxfViewer({ fileUrl, fileName }) {
+export default function DxfViewer({ fileUrl, fileName, fetchOptions }) {
   const containerRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -68,7 +68,7 @@ export default function DxfViewer({ fileUrl, fileName }) {
         let dxf
         for (let i = 0; i < retries; i++) {
           try {
-            const response = await fetch(fileUrl, { cache: 'no-cache' })
+            const response = await fetch(fileUrl, { cache: 'no-cache', ...fetchOptions })
             if (!response.ok) throw new Error('Dosya yüklenemedi')
             
             const dxfText = await response.text()

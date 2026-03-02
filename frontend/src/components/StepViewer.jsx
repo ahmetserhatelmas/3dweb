@@ -6,7 +6,7 @@ import { RotateCcw, ZoomIn, ZoomOut, Maximize2, Move, Grid3X3, Ruler, Minus } fr
 import occtimportjs from 'occt-import-js'
 import './StepViewer.css'
 
-export default function StepViewer({ fileUrl }) {
+export default function StepViewer({ fileUrl, fetchOptions }) {
   const containerRef = useRef(null)
   const rendererRef = useRef(null)
   const labelRendererRef = useRef(null) // CSS2D Renderer for labels
@@ -469,13 +469,19 @@ export default function StepViewer({ fileUrl }) {
 
         setLoadingProgress(20)
 
-        const response = await fetch(fileUrl)
-        if (!response.ok) throw new Error('STEP dosyası yüklenemedi')
+        const response = await fetch(fileUrl, fetchOptions || {})
+        if (!response.ok) throw new Error(`STEP dosyası yüklenemedi (HTTP ${response.status})`)
         
         const buffer = await response.arrayBuffer()
+        const bytes = new Uint8Array(buffer)
+        if (process.env.NODE_ENV !== 'production') {
+          const preview = bytes.length <= 200 ? String.fromCharCode(...bytes.slice(0, 120)) : String.fromCharCode(...bytes.slice(0, 80)) + '...'
+          const safe = preview.replace(/[\s\r\n]+/g, ' ').slice(0, 70)
+          console.log(`STEP fetch size: ${bytes.length} | starts: ${safe || '(empty)'}`)
+        }
         setLoadingProgress(50)
 
-        const result = occt.ReadStepFile(new Uint8Array(buffer), null)
+        const result = occt.ReadStepFile(bytes, null)
         setLoadingProgress(70)
 
         if (!result.success || result.meshes.length === 0) {

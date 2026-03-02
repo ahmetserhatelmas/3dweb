@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { 
   ArrowRight, 
@@ -37,6 +37,11 @@ export default function Home() {
   
   const [showLogin, setShowLogin] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSuccess, setForgotSuccess] = useState(false)
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotError, setForgotError] = useState('')
   const [loginUserType, setLoginUserType] = useState('supplier') // 'supplier' or 'customer'
   const [registerUserType, setRegisterUserType] = useState('supplier') // 'supplier' or 'customer'
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
@@ -139,6 +144,34 @@ export default function Home() {
       setLoading(false)
     }
   }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    setForgotError('')
+    setForgotLoading(true)
+    setForgotSuccess(false)
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${apiUrl}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim(), user_type: loginUserType })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'İstek başarısız')
+      setForgotSuccess(true)
+    } catch (err) {
+      setForgotError(err.message)
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const forgotPasswordLabel = {
+    supplier: 'Tedarikçi hesabı',
+    customer: 'Müşteri hesabı',
+    admin: 'Admin hesabı'
+  }[loginUserType] || 'Hesap'
 
   const handleRegister = async (e) => {
     e.preventDefault()
@@ -427,6 +460,9 @@ export default function Home() {
             <img src="/logo.png" alt="Kunye.tech" className="footer-logo-img" />
             <span>Kunye.tech</span>
           </div>
+          <div className="footer-links">
+            <Link to="/kvkk" className="footer-link">KVKK Aydınlatma Metni</Link>
+          </div>
           <p className="footer-copyright">&copy; 2026 Kunye.tech. Tüm hakları saklıdır.</p>
           <p className="footer-license">
             This application uses{' '}
@@ -446,67 +482,118 @@ export default function Home() {
       {showLogin && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <button className="modal-close" onClick={() => setShowLogin(false)}>×</button>
-            <h2>Giriş Yap</h2>
-            
-            {/* User Type Tabs */}
-            <div className="user-type-tabs">
-              <button
-                type="button"
-                className={`tab-btn ${loginUserType === 'supplier' ? 'active' : ''}`}
-                onClick={() => setLoginUserType('supplier')}
-              >
-                <Users size={16} />
-                Tedarikçi Girişi
-              </button>
-              <button
-                type="button"
-                className={`tab-btn ${loginUserType === 'customer' ? 'active' : ''}`}
-                onClick={() => setLoginUserType('customer')}
-              >
-                <Building2 size={16} />
-                Müşteri Girişi
-              </button>
-              <button
-                type="button"
-                className={`tab-btn ${loginUserType === 'admin' ? 'active' : ''}`}
-                onClick={() => setLoginUserType('admin')}
-              >
-                <Shield size={16} />
-                Admin Girişi
-              </button>
-            </div>
+            <button className="modal-close" onClick={() => { setShowLogin(false); setShowForgotPassword(false); setForgotSuccess(false); setForgotError(''); }}>×</button>
+            <h2>{showForgotPassword ? 'Şifremi Unuttum' : 'Giriş Yap'}</h2>
 
-            <form onSubmit={handleLogin}>
-              {error && <div className="error-message">{error}</div>}
-              <div className="form-group">
-                <label>
-                  <User size={18} />
-                  Kullanıcı Adı
-                </label>
-                <input
-                  type="text"
-                  value={loginForm.username}
-                  onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>
-                  <Lock size={18} />
-                  Şifre
-                </label>
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  required
-                />
-              </div>
-              <button type="submit" className="btn-submit" disabled={loading}>
-                {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
-              </button>
-            </form>
+            {showForgotPassword ? (
+              <>
+                <p className="modal-hint">
+                  <strong>{forgotPasswordLabel}</strong> için şifre sıfırlama. Bu e-posta ile kayıtlı {loginUserType === 'supplier' ? 'tedarikçi' : loginUserType === 'customer' ? 'müşteri' : 'admin'} hesabınızın şifresini sıfırlayacaksınız.
+                </p>
+                {forgotSuccess ? (
+                  <div className="forgot-success">
+                    <p><strong>{forgotPasswordLabel}</strong> için şifre sıfırlama bağlantısı e-posta ile gönderildi. Gelen kutunuzu (ve gerekiyorsa spam klasörünü) kontrol edin.</p>
+                    <button type="button" className="btn-text link-style" onClick={() => { setShowForgotPassword(false); setForgotSuccess(false); setForgotEmail(''); }}>
+                      Girişe dön
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleForgotPassword}>
+                    {forgotError && <div className="error-message">{forgotError}</div>}
+                    <div className="form-group">
+                      <label>
+                        <Mail size={18} />
+                        E-posta ({forgotPasswordLabel})
+                      </label>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        placeholder="Bu hesap tipinde kayıtlı e-posta adresiniz"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <button type="submit" className="btn-submit" disabled={forgotLoading}>
+                      {forgotLoading ? 'Gönderiliyor...' : `${forgotPasswordLabel} için sıfırlama bağlantısı gönder`}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-text link-style forgot-back"
+                      onClick={() => { setShowForgotPassword(false); setForgotError(''); setForgotEmail(''); }}
+                    >
+                      ← Girişe dön
+                    </button>
+                  </form>
+                )}
+              </>
+            ) : (
+              <>
+                {/* User Type Tabs */}
+                <div className="user-type-tabs">
+                  <button
+                    type="button"
+                    className={`tab-btn ${loginUserType === 'supplier' ? 'active' : ''}`}
+                    onClick={() => setLoginUserType('supplier')}
+                  >
+                    <Users size={16} />
+                    Tedarikçi Girişi
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${loginUserType === 'customer' ? 'active' : ''}`}
+                    onClick={() => setLoginUserType('customer')}
+                  >
+                    <Building2 size={16} />
+                    Müşteri Girişi
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${loginUserType === 'admin' ? 'active' : ''}`}
+                    onClick={() => setLoginUserType('admin')}
+                  >
+                    <Shield size={16} />
+                    Admin Girişi
+                  </button>
+                </div>
+
+                <form onSubmit={handleLogin}>
+                  {error && <div className="error-message">{error}</div>}
+                  <div className="form-group">
+                    <label>
+                      <User size={18} />
+                      Kullanıcı adı veya e-posta
+                    </label>
+                    <input
+                      type="text"
+                      autoComplete="username email"
+                      placeholder="Kullanıcı adı veya e-posta adresiniz"
+                      value={loginForm.username}
+                      onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>
+                      <Lock size={18} />
+                      Şifre
+                    </label>
+                    <input
+                      type="password"
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <button type="button" className="link-forgot" onClick={() => setShowForgotPassword(true)}>
+                    Şifremi unuttum
+                  </button>
+                  <button type="submit" className="btn-submit" disabled={loading}>
+                    {loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}

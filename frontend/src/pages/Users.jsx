@@ -37,6 +37,7 @@ export default function Users() {
   
   const [form, setForm] = useState({
     username: '',
+    email: '',
     password: '',
     role: 'user',
     company_name: ''
@@ -162,6 +163,7 @@ export default function Users() {
       
       setForm({
         username: '',
+        email: '',
         password: '',
         role: 'user',
         company_name: ''
@@ -185,6 +187,7 @@ export default function Users() {
     setEditingUser(u)
     setForm({
       username: u.username,
+      email: u.email || '',
       password: '',
       role: u.role,
       company_name: u.company_name || ''
@@ -541,8 +544,8 @@ export default function Users() {
                       {u.company_name}
                     </p>
                   )}
-                  {/* Show plan info for customer admins (admin view only) */}
-                  {!isCustomer && u.role === 'customer' && u.is_customer_admin && (
+                  {/* Show plan info for all customers (admin view only) */}
+                  {!isCustomer && u.role === 'customer' && (
                     <div style={{ marginTop: '0.5rem' }}>
                       <span style={{
                         display: 'inline-block',
@@ -550,17 +553,17 @@ export default function Users() {
                         borderRadius: '4px',
                         fontSize: '0.75rem',
                         fontWeight: '600',
-                        background: u.plan_type === 'business' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                        color: u.plan_type === 'business' ? '#f59e0b' : '#3b82f6',
-                        border: `1px solid ${u.plan_type === 'business' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                        background: (u.plan_type || 'starter') === 'business' ? 'rgba(251, 191, 36, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                        color: (u.plan_type || 'starter') === 'business' ? '#f59e0b' : '#3b82f6',
+                        border: `1px solid ${(u.plan_type || 'starter') === 'business' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
                       }}>
-                        {u.plan_type === 'business' ? '🏢 Business' : '⚡ Starter'}
+                        {(u.plan_type || 'starter') === 'business' ? '🏢 Business' : '⚡ Starter'}
                       </span>
-                      {u.plan_start_date && (
-                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                          Başlangıç: {new Date(u.plan_start_date).toLocaleDateString('tr-TR')}
-                        </p>
-                      )}
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                        Başlangıç: {(u.plan_start_date || u.created_at)
+                          ? new Date(u.plan_start_date || u.created_at).toLocaleDateString('tr-TR')
+                          : '—'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -576,7 +579,7 @@ export default function Users() {
                 </span>
                   {u.id !== user.id && (
                     <div className="user-card-buttons">
-                      {!isCustomer && u.role === 'customer' && u.is_customer_admin && (
+                      {!isCustomer && u.role === 'customer' && (
                         <button 
                           className="icon-btn" 
                           onClick={() => handleOpenPlanModal(u)}
@@ -642,6 +645,20 @@ export default function Users() {
                     disabled={editingUser}
                   />
                 </div>
+
+                {!editingUser && (
+                <div className="input-group">
+                  <label>E-posta *</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={form.email}
+                    onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="ornek@firma.com"
+                    required
+                  />
+                </div>
+                )}
 
                 {!editingUser ? (
                 <div className="input-group">

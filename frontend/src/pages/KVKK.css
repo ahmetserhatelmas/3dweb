@@ -1,0 +1,126 @@
+/* KVKK Page - matches site theme */
+.kvkk-page {
+  min-height: 100vh;
+  background: #0a0e27;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.kvkk-header {
+  background: rgba(10, 14, 39, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.kvkk-header-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.kvkk-header-logo img {
+  height: 32px;
+  width: auto;
+}
+
+.kvkk-header-logo:hover {
+  color: #00d4aa;
+}
+
+.kvkk-back {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: color 0.2s;
+}
+
+.kvkk-back:hover {
+  color: #00d4aa;
+}
+
+.kvkk-main {
+  flex: 1;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 2rem 4rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.kvkk-main h1 {
+  font-size: 1.75rem;
+  margin-bottom: 1rem;
+  color: #ffffff;
+}
+
+.kvkk-intro {
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.7;
+  margin-bottom: 2rem;
+}
+
+.kvkk-section {
+  margin-bottom: 2rem;
+}
+
+.kvkk-section h2 {
+  font-size: 1.15rem;
+  color: #00d4aa;
+  margin-bottom: 0.75rem;
+}
+
+.kvkk-section p {
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.7;
+  margin-bottom: 0.75rem;
+}
+
+.kvkk-section p:last-child {
+  margin-bottom: 0;
+}
+
+.kvkk-date {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.kvkk-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1.5rem 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.kvkk-footer a {
+  color: #00d4aa;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.kvkk-footer a:hover {
+  color: #00b894;
+  text-decoration: underline;
+}
+
+.kvkk-footer-copy {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+}

@@ -14,7 +14,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "setup": "node backend/setup-db.js",
-    "setup:users": "node backend/setup-users.js"
+    "setup:users": "node backend/setup-users.js",
+    "backup": "node backend/scripts/backup-data.js",
+    "backup:r2": "node backend/scripts/backup-data.js --upload",
+    "backfill:file-sizes": "node backend/scripts/backfill-file-sizes.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.990.0",

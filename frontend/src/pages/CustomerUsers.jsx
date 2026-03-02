@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Users as UsersIcon, FileBox, 
-  Trash2, Building2, Mail, User as UserIcon, Copy, Check, UserPlus, Shield
+  Trash2, Building2, Mail, User as UserIcon, Copy, Check, UserPlus, Shield, DollarSign
 } from 'lucide-react'
 import './Users.css'
 
@@ -132,6 +132,10 @@ export default function CustomerUsers() {
               <UserPlus size={20} />
               <span>Kullanıcılar</span>
             </Link>
+            <Link to={`${basePath}/archive`} className="nav-item">
+              <DollarSign size={20} />
+              <span>Arşiv Teklifler</span>
+            </Link>
           </nav>
 
           <div className="sidebar-footer">
@@ -244,6 +248,10 @@ export default function CustomerUsers() {
             <Link to={`${basePath}/users`} className="nav-item active">
               <UserPlus size={20} />
               <span>Kullanıcılar</span>
+            </Link>
+            <Link to={`${basePath}/archive`} className="nav-item">
+              <DollarSign size={20} />
+              <span>Arşiv Teklifler</span>
             </Link>
           </nav>
 
@@ -381,7 +389,12 @@ export default function CustomerUsers() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Depolama</span>
                   <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
-                    {usageStats.usage.storage_gb} / {usageStats.limits.storage_gb} GB
+                    {(() => {
+                      const gb = usageStats?.usage?.storage_gb ?? 0
+                      const mb = usageStats?.usage?.storage_mb ?? 0
+                      const limitGb = usageStats?.limits?.storage_gb ?? 10
+                      return `${gb >= 1 ? `${gb} GB` : `${mb} MB`} / ${limitGb} GB`
+                    })()}
                   </span>
                 </div>
                 <div style={{ 
@@ -392,11 +405,16 @@ export default function CustomerUsers() {
                 }}>
                   <div style={{ 
                     height: '100%', 
-                    width: `${Math.min((usageStats.usage.storage_gb / usageStats.limits.storage_gb) * 100, 100)}%`,
-                    background: usageStats.usage.storage_gb >= usageStats.limits.storage_gb ? '#ef4444' : '#8b5cf6',
+                    width: `${Math.min(((usageStats?.usage?.storage_gb ?? 0) / (usageStats?.limits?.storage_gb ?? 10)) * 100, 100)}%`,
+                    background: (usageStats?.usage?.storage_gb ?? 0) >= (usageStats?.limits?.storage_gb ?? 10) ? '#ef4444' : '#8b5cf6',
                     transition: 'width 0.3s'
                   }} />
                 </div>
+                {usageStats?.usage?.storage_unknown && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    Eski dosyaların boyutu veritabanında kayıtlı değil; yeni yüklemeler sayılır.
+                  </div>
+                )}
               </div>
             </div>
           </div>
