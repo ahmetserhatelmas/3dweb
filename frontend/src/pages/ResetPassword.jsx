@@ -24,15 +24,29 @@ export default function ResetPassword() {
       setConfigLoaded(true)
       return
     }
-    fetch(apiUrl('/api/config'))
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.supabaseUrl && data?.supabaseAnonKey) {
-          supabaseRef.current = createClient(data.supabaseUrl, data.supabaseAnonKey)
-        }
+    const base = apiUrl('/api/config')
+    const urlsToTry = [base]
+    if (typeof window !== 'undefined' && window.location?.hostname?.includes('kunye.tech') && base === '/api/config') {
+      urlsToTry.push('https://api.kunye.tech/api/config')
+    }
+    let tried = 0
+    const tryNext = () => {
+      if (tried >= urlsToTry.length) {
         setConfigLoaded(true)
-      })
-      .catch(() => setConfigLoaded(true))
+        return
+      }
+      const url = urlsToTry[tried++]
+      fetch(url)
+        .then((r) => r.ok ? r.json() : Promise.reject(new Error('not ok')))
+        .then((data) => {
+          if (data?.supabaseUrl && data?.supabaseAnonKey) {
+            supabaseRef.current = createClient(data.supabaseUrl, data.supabaseAnonKey)
+          }
+          setConfigLoaded(true)
+        })
+        .catch(() => tryNext())
+    }
+    tryNext()
   }, [])
 
   useEffect(() => {
