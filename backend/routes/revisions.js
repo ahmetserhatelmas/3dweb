@@ -1202,24 +1202,56 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
       await new Promise(resolve => setTimeout(resolve, 1000))
       
       // Get project details
-      const { data: project } = await supabaseAdmin
+      let { data: project, error: projectFetchError } = await supabaseAdmin
         .from('projects')
         .select(`
           *,
-          creator:profiles!projects_created_by_fkey(username, company_name),
-          supplier:profiles!projects_assigned_to_fkey(username, company_name)
+          creator:profiles!projects_created_by_fkey(id, username, company_name, email, phone),
+          supplier:profiles!projects_assigned_to_fkey(id, username, company_name, email, phone)
         `)
         .eq('id', request.project_id)
         .single()
 
+      // Fallback: join başarısız olduysa ayrı sorgularla çek
       if (!project) {
-        console.error('❌ Project not found for contract generation')
+        console.warn('⚠️ Project join query failed, trying simple fetch. Error:', projectFetchError?.message)
+        const { data: pSimple } = await supabaseAdmin
+          .from('projects').select('*').eq('id', request.project_id).single()
+
+        if (pSimple) {
+          const [{ data: creatorP }, { data: supplierP }] = await Promise.all([
+            supabaseAdmin.from('profiles').select('id, username, company_name, email, phone').eq('id', pSimple.created_by).single(),
+            supabaseAdmin.from('profiles').select('id, username, company_name, email, phone').eq('id', pSimple.assigned_to).single()
+          ])
+          project = { ...pSimple, creator: creatorP || null, supplier: supplierP || null }
+          console.log('✅ Project loaded via fallback:', project.name)
+        }
+      }
+
+      if (!project) {
+        console.error('❌ Project not found for contract generation. project_id:', request.project_id)
       } else {
         console.log('✅ Project found for contract:', { 
           id: project.id, 
           name: project.name,
           assigned_to: project.assigned_to 
         })
+
+        // Get auth emails as fallback
+        let customerAuthEmail = ''
+        let supplierAuthEmail = ''
+        try {
+          if (project.creator?.id) {
+            const { data: cUser } = await supabaseAdmin.auth.admin.getUserById(project.creator.id)
+            customerAuthEmail = cUser?.user?.email || ''
+          }
+          if (project.supplier?.id) {
+            const { data: sUser } = await supabaseAdmin.auth.admin.getUserById(project.supplier.id)
+            supplierAuthEmail = sUser?.user?.email || ''
+          }
+        } catch (e) {
+          console.warn('Could not fetch auth emails:', e.message)
+        }
         
         // Get quotation
         const { data: quotation, error: quotationError } = await supabaseAdmin
@@ -1366,12 +1398,12 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
             .eq('is_active', true)
           
           const isContractLike = (f) => {
-            const typePdf = (f.file_type || '').toLowerCase() === 'pdf'
+            const typeMatch = ['pdf', 'document'].includes((f.file_type || '').toLowerCase())
             const name = (f.file_name || '').toLowerCase()
             const desc = (f.description || '').toLowerCase()
             const looksLikeContract = name.includes('sözleşme') || name.includes('sozlesme') || name.includes('contract') ||
               desc.includes('sözleşme') || desc.includes('sozlesme') || (f.file_name && f.file_name.includes('📄'))
-            return typePdf || looksLikeContract
+            return typeMatch || looksLikeContract
           }
           
           const contractIds = (allActiveFiles || []).filter(isContractLike).map(c => c.id)
@@ -1403,10 +1435,14 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
           const contractData = {
             projectName: project.name,
             projectPartNumber: project.part_number,
-            customerName: project.creator.username,
-            customerCompany: project.creator.company_name,
-            supplierName: project.supplier.username,
-            supplierCompany: project.supplier.company_name,
+            customerName: project.creator?.username || 'Musteri',
+            customerCompany: project.creator?.company_name || project.creator?.username || 'Musteri',
+            customerEmail: project.creator?.email || customerAuthEmail || '',
+            customerPhone: project.creator?.phone || '',
+            supplierName: project.supplier?.username || 'Tedarikci',
+            supplierCompany: project.supplier?.company_name || project.supplier?.username || 'Tedarikci',
+            supplierEmail: project.supplier?.email || supplierAuthEmail || '',
+            supplierPhone: project.supplier?.phone || '',
             quotationItems: formattedItems,
             totalPrice: newTotal,
             deliveryDate: quotation.delivery_date || project.deadline,
@@ -1442,14 +1478,14 @@ router.post('/revision-requests/:requestId/accept', authenticateToken, async (re
               .insert({
                 project_id: request.project_id,
                 file_name: `📄 Sözleşme_${project.name}_Rev_${request.to_revision}.pdf`,
-                file_type: 'pdf',
+                file_type: 'document',
                 file_url: publicUrl,
                 file_path: fileName,
                 description: `Revizyon ${request.to_revision} sözleşmesi`,
                 revision: request.to_revision,
                 is_active: true,
                 status: 'active',
-                order_index: 9999 // High order to appear last
+                order_index: 9999
               })
               .select()
               .single()

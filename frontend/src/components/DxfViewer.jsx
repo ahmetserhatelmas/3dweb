@@ -69,7 +69,15 @@ export default function DxfViewer({ fileUrl, fileName, fetchOptions }) {
         for (let i = 0; i < retries; i++) {
           try {
             const response = await fetch(fileUrl, { cache: 'no-cache', ...fetchOptions })
-            if (!response.ok) throw new Error('Dosya yüklenemedi')
+            if (!response.ok) {
+              const errBody = await response.text()
+              let msg = `Dosya yüklenemedi (HTTP ${response.status})`
+              try {
+                const j = JSON.parse(errBody)
+                if (j?.error) msg += `: ${j.error}`
+              } catch (_) {}
+              throw new Error(msg)
+            }
             
             const dxfText = await response.text()
             const parser = new DxfParser()

@@ -1,16 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import { 
   LogOut, Box, Clock, CheckCircle, 
-  Eye, FileBox, Calendar, ChevronRight, Building2, Send, Users, Key, Plus
+  Eye, FileBox, Calendar, ChevronRight, Building2, Send, Users, Key, Plus,
+  Settings, Sun, Moon
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
 
 export default function UserDashboard() {
   const { user, token, logout } = useAuth()
+  const { showToast } = useToast()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const [projects, setProjects] = useState([])
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +32,16 @@ export default function UserDashboard() {
   // Usage stats
   const [usageStats, setUsageStats] = useState(null)
   const [loadingStats, setLoadingStats] = useState(true)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     fetchProjects()
@@ -118,7 +135,7 @@ export default function UserDashboard() {
         throw new Error(data.error || 'Davet kodu kabul edilemedi')
       }
 
-      alert(`${data.customer.company_name || data.customer.username} ile bağlantı kuruldu!`)
+      showToast(`${data.customer.company_name || data.customer.username} ile bağlantı kuruldu!`, 'success')
       setInviteCode('')
       fetchCustomers() // Refresh customer list
     } catch (err) {
@@ -146,7 +163,7 @@ export default function UserDashboard() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
 
@@ -165,28 +182,35 @@ export default function UserDashboard() {
           <Link to="/customers" className="nav-item">
             <Users size={20} />
             <span>Müşterilerim</span>
-            {customers.length > 0 && (
-              <span className="nav-badge-info">{customers.length}</span>
-            )}
           </Link>
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar user">
-              {user?.username?.charAt(0).toUpperCase()}
+          <div className="user-info-wrap" ref={settingsRef}>
+            <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer', flex: 1 }}>
+              <div className="user-avatar user">
+                {user?.username?.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <span className="user-name">{user?.username}</span>
+                <span className="user-role-label">Tedarikçi</span>
+              </div>
+              <Settings size={16} className="settings-icon" />
             </div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-company">
-                <Building2 size={12} />
-                {user?.company_name}
-              </span>
-            </div>
+            {settingsOpen && (
+              <div className="settings-dropdown">
+                <button className="settings-dropdown-item" onClick={() => { toggleTheme() }}>
+                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                  {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+                </button>
+                <div className="settings-dropdown-divider" />
+                <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+                  <LogOut size={16} />
+                  Çıkış Yap
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
         </div>
       </aside>
 

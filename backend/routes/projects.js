@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { spawn } from 'child_process'
 import { supabaseAdmin } from '../db/supabase.js'
 import { authenticateToken, requireAdmin, requireAdminOrCustomer } from '../middleware/supabaseAuth.js'
-import { sendContractEmailToSupplier, sendQuoteRequestToSupplier, sendQuoteReminder1DayLeft } from '../lib/email.js'
+import { sendContractEmailToSupplier, sendContractEmailToCustomer, sendQuoteRequestToSupplier, sendQuoteReminder1DayLeft } from '../lib/email.js'
 import { getR2ObjectStream } from '../lib/r2Storage.js'
 
 const router = express.Router()
@@ -752,18 +752,24 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
       .eq('supplier_id', supplierId)
       .maybeSingle()
 
-    // Get customer and supplier info
+    // Get customer and supplier info (email dahil)
     const { data: customer } = await freshClient
       .from('profiles')
-      .select('username, company_name')
+      .select('username, company_name, email, phone')
       .eq('id', req.user.id)
       .single()
 
     const { data: supplier } = await freshClient
       .from('profiles')
-      .select('username, company_name')
+      .select('username, company_name, email, phone')
       .eq('id', supplierId)
       .single()
+
+    // Auth e-postalarını da al
+    const { data: customerAuthData } = await freshClient.auth.admin.getUserById(req.user.id)
+    const { data: supplierAuthData } = await freshClient.auth.admin.getUserById(supplierId)
+    const customerEmail = customer?.email || customerAuthData?.user?.email || ''
+    const supplierEmail2 = supplier?.email || supplierAuthData?.user?.email || ''
 
     // Accept this quotation
     const { data: acceptResult, error: acceptError } = await freshClient
@@ -814,10 +820,20 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
         projectId,
         projectName: project.name,
         projectPartNumber: project.part_number,
-        customerName: customer.username,
-        customerCompany: customer.company_name,
-        supplierName: supplier.username,
-        supplierCompany: supplier.company_name,
+        customerName: customer?.username || 'Musteri',
+        customerCompany: customer?.company_name || '',
+        customerEmail: customerEmail,
+        customerAddress: '',
+        customerTaxOffice: '',
+        customerTaxNumber: '',
+        customerPhone: customer?.phone || '',
+        supplierName: supplier?.username || 'Tedarikci',
+        supplierCompany: supplier?.company_name || '',
+        supplierEmail: supplierEmail2,
+        supplierAddress: '',
+        supplierTaxOffice: '',
+        supplierTaxNumber: '',
+        supplierPhone: supplier?.phone || '',
         quotationItems: quotationData?.quotation_items?.map(item => ({
           title: item.title || item.file?.file_name,
           file_name: item.file?.file_name,
@@ -870,7 +886,7 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
           .insert({
             project_id: projectId,
             file_name: `📄 Sözleşme_${project.name}.pdf`,
-            file_type: 'pdf',
+            file_type: 'document',
             file_url: publicUrl,
             file_path: fileName,
             file_size: pdfBuffer.length,
@@ -887,11 +903,9 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
 
         // E-posta: tedarikçiye bildirim + sözleşme
         try {
-          const { data: authUser } = await freshClient.auth.admin.getUserById(supplierId)
-          const supplierEmail = authUser?.user?.email
-          if (supplierEmail) {
+          if (supplierEmail2) {
             await sendContractEmailToSupplier(
-              supplierEmail,
+              supplierEmail2,
               supplier.username || supplier.company_name || 'Tedarikçi',
               project.name,
               pdfBuffer,
@@ -902,6 +916,22 @@ router.post('/:projectId/quotations/:supplierId/accept', authenticateToken, asyn
           }
         } catch (emailErr) {
           console.error('❌ Contract email to supplier failed:', emailErr.message)
+        }
+
+        // E-posta: müşteriye de sözleşme kopyası gönder
+        try {
+          if (customerEmail) {
+            await sendContractEmailToCustomer(
+              customerEmail,
+              customer.username || customer.company_name || 'Müşteri',
+              project.name,
+              supplier.company_name || supplier.username,
+              pdfBuffer,
+              publicUrl
+            )
+          }
+        } catch (emailErr) {
+          console.error('❌ Contract email to customer failed:', emailErr.message)
         }
       }
     } catch (pdfError) {
@@ -1371,6 +1401,26 @@ router.get('/:projectId/files/:fileId/stream', authenticateToken, async (req, re
       if (directUrl) {
         const curl = spawn('curl', ['-fsSL', '-N', '--tlsv1.2', '--connect-timeout', '15', '--max-time', '120', directUrl], { stdio: ['ignore', 'pipe', 'pipe'] })
         let sentHeaders = false
+        let curlFailedHandled = false
+        const onCurlFailed = () => {
+          if (curlFailedHandled || sentHeaders) return
+          curlFailedHandled = true
+          getR2ObjectStream(fileRow.file_path)
+            .then((streamData) => {
+              if (!streamData) {
+                res.status(502).json({ error: 'Dosya alınamadı.' })
+                return
+              }
+              res.setHeader('Content-Type', streamData.contentType || contentType)
+              if (streamData.contentLength != null) res.setHeader('Content-Length', String(streamData.contentLength))
+              res.setHeader('Cache-Control', 'private, max-age=3600')
+              streamData.body.pipe(res)
+            })
+            .catch((err) => {
+              if (process.env.NODE_ENV !== 'production') console.log('R2 getR2ObjectStream fallback failed:', err?.message)
+              res.status(502).json({ error: 'Dosya alınamadı.' })
+            })
+        }
         curl.stdout.on('data', (chunk) => {
           if (!sentHeaders) {
             if (process.env.NODE_ENV !== 'production') res.setHeader('X-Debug-Stream-Url', directUrl)
@@ -1384,13 +1434,13 @@ router.get('/:projectId/files/:fileId/stream', authenticateToken, async (req, re
         curl.stderr.on('data', (d) => console.error('R2 curl stderr:', d?.toString()))
         curl.on('error', (err) => {
           console.error('R2 curl spawn error:', err)
-          if (!sentHeaders) res.status(502).json({ error: 'Dosya alınamadı.' })
+          onCurlFailed()
         })
         curl.on('close', (code, signal) => {
           if (process.env.NODE_ENV !== 'production') {
             console.log('R2 curl close:', { code, signal, hadData: sentHeaders, url: directUrl?.slice(-60) })
           }
-          if (!sentHeaders) res.status(502).json({ error: 'Dosya alınamadı.' })
+          onCurlFailed()
         })
         req.on('close', () => { try { curl.kill() } catch (_) {} })
         return

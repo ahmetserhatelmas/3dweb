@@ -43,6 +43,7 @@ const getFileIcon = (type) => {
     case 'iges': return <Box size={20} className="file-icon iges" />
     case 'parasolid': return <Box size={20} className="file-icon parasolid" />
     case 'pdf': return <FileText size={20} className="file-icon pdf" />
+    case 'document': return <FileText size={20} className="file-icon pdf" />
     case 'excel': return <FileSpreadsheet size={20} className="file-icon excel" />
     case 'image': return <Image size={20} className="file-icon image" />
     default: return <File size={20} className="file-icon" />
@@ -86,6 +87,8 @@ export default function ProjectDetail() {
   const [quotations, setQuotations] = useState([])
   const [loadingQuotations, setLoadingQuotations] = useState(false)
   const [processingQuotation, setProcessingQuotation] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null) // { type, supplierId, supplierName, message, onConfirm }
+  const [toastMsg, setToastMsg] = useState(null) // { text, ok }
   const [deletingProject, setDeletingProject] = useState(false)
   const [showQuotationDetailsModal, setShowQuotationDetailsModal] = useState(false)
   const [quotationsPanelExpanded, setQuotationsPanelExpanded] = useState(true)
@@ -182,59 +185,76 @@ export default function ProjectDetail() {
     }
   }
 
+  const showToast = (text, ok = true) => {
+    setToastMsg({ text, ok })
+    setTimeout(() => setToastMsg(null), 4000)
+  }
+
   const handleAcceptQuotation = async (supplierId) => {
-    if (!confirm('Bu teklifi kabul etmek istediğinize emin misiniz? Diğer teklifler reddedilecektir.')) {
-      return
-    }
-
-    setProcessingQuotation(supplierId)
-    try {
-      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/accept`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (res.ok) {
-        alert('Teklif kabul edildi! Proje tedarikçiye atandı.')
-        fetchProject()
-        fetchQuotations()
-      } else {
-        const data = await res.json()
-        alert(data.error || 'İşlem başarısız.')
+    const supplierInfo = quotations.find(q => q.supplier?.id === supplierId)
+    const supplierLabel = supplierInfo?.supplier?.company_name || supplierInfo?.supplier?.username || 'Tedarikçi'
+    setConfirmModal({
+      type: 'accept',
+      supplierId,
+      supplierName: supplierLabel,
+      message: `<strong>${supplierLabel}</strong> firmasının teklifini kabul etmek istediğinize emin misiniz?<br/><br/>Diğer tüm teklifler reddedilecek ve sözleşme otomatik oluşturulacaktır.`,
+      onConfirm: async () => {
+        setConfirmModal(null)
+        setProcessingQuotation(supplierId)
+        try {
+          const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/accept`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            showToast('Teklif kabul edildi! Proje tedarikçiye atandı ve sözleşme oluşturuldu.')
+            fetchProject()
+            fetchQuotations()
+          } else {
+            const data = await res.json()
+            showToast(data.error || 'İşlem başarısız.', false)
+          }
+        } catch (error) {
+          console.error('Accept quotation error:', error)
+          showToast('Bir hata oluştu.', false)
+        } finally {
+          setProcessingQuotation(null)
+        }
       }
-    } catch (error) {
-      console.error('Accept quotation error:', error)
-      alert('Bir hata oluştu.')
-    } finally {
-      setProcessingQuotation(null)
-    }
+    })
   }
 
   const handleRejectQuotation = async (supplierId) => {
-    if (!confirm('Bu teklifi reddetmek istediğinize emin misiniz?')) {
-      return
-    }
-
-    setProcessingQuotation(supplierId)
-    try {
-      const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/reject`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (res.ok) {
-        alert('Teklif reddedildi.')
-        fetchQuotations()
-      } else {
-        const data = await res.json()
-        alert(data.error || 'İşlem başarısız.')
+    const supplierInfo = quotations.find(q => q.supplier?.id === supplierId)
+    const supplierLabel = supplierInfo?.supplier?.company_name || supplierInfo?.supplier?.username || 'Tedarikçi'
+    setConfirmModal({
+      type: 'reject',
+      supplierId,
+      supplierName: supplierLabel,
+      message: `<strong>${supplierLabel}</strong> firmasının teklifini reddetmek istediğinize emin misiniz?`,
+      onConfirm: async () => {
+        setConfirmModal(null)
+        setProcessingQuotation(supplierId)
+        try {
+          const res = await fetch(`${API_URL}/api/projects/${id}/quotations/${supplierId}/reject`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            showToast('Teklif reddedildi.')
+            fetchQuotations()
+          } else {
+            const data = await res.json()
+            showToast(data.error || 'İşlem başarısız.', false)
+          }
+        } catch (error) {
+          console.error('Reject quotation error:', error)
+          showToast('Bir hata oluştu.', false)
+        } finally {
+          setProcessingQuotation(null)
+        }
       }
-    } catch (error) {
-      console.error('Reject quotation error:', error)
-      alert('Bir hata oluştu.')
-    } finally {
-      setProcessingQuotation(null)
-    }
+    })
   }
 
   // Customer note functions
@@ -575,46 +595,32 @@ export default function ProjectDetail() {
   }
 
   const handleDeleteDocument = async (docId, docName) => {
-    console.log('Delete clicked:', docId, docName)
-    
-    const confirmed = window.confirm(`"${docName}" dökümanını silmek istediğinize emin misiniz?`)
-    console.log('Confirm result:', confirmed)
-    
-    if (!confirmed) {
-      console.log('User cancelled')
-      return
-    }
-
-    console.log('Starting delete...')
-    setDeletingDoc(docId)
-    
-    const url = `${API_URL}/api/projects/${id}/documents/${docId}`
-    console.log('DELETE URL:', url)
-    console.log('Token:', token ? 'exists' : 'missing')
-    
-    try {
-      console.log('Sending fetch request...')
-      const res = await fetch(url, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      console.log('Response status:', res.status)
-
-      if (res.ok) {
-        console.log('Delete successful, refreshing...')
-        fetchProject()
-      } else {
-        const data = await res.json()
-        console.log('Delete failed:', data)
-        alert(data.error)
+    setConfirmModal({
+      type: 'delete',
+      message: `"${docName}" dökümanını silmek istediğinize emin misiniz?`,
+      onConfirm: async () => {
+        setConfirmModal(null)
+        setDeletingDoc(docId)
+        const url = `${API_URL}/api/projects/${id}/documents/${docId}`
+        try {
+          const res = await fetch(url, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            fetchProject()
+          } else {
+            const data = await res.json()
+            setToastMsg({ text: data.error || 'Döküman silinemedi.', type: 'error' })
+          }
+        } catch (error) {
+          console.error('Delete document error:', error)
+          setToastMsg({ text: 'Döküman silinirken hata oluştu.', type: 'error' })
+        } finally {
+          setDeletingDoc(null)
+        }
       }
-    } catch (error) {
-      console.error('Delete document error:', error)
-      alert('Döküman silinirken hata oluştu.')
-    } finally {
-      console.log('Delete finished')
-      setDeletingDoc(null)
-    }
+    })
   }
 
   // Count only parent items (no parent_id) for progress - children don't count separately
@@ -792,6 +798,40 @@ export default function ProjectDetail() {
             className="pdf-preview"
             title={file.file_name}
           />
+        )
+      case 'document':
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+            <iframe
+              src={file.file_url}
+              className="pdf-preview"
+              title={file.file_name}
+              style={{ flex: 1, border: 'none', minHeight: '500px' }}
+            />
+            <div style={{
+              padding: '0.75rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              gap: '0.75rem'
+            }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {file.file_name}
+              </span>
+              <a
+                href={file.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}
+              >
+                <Download size={15} />
+                İndir
+              </a>
+            </div>
+          </div>
         )
       case 'excel':
         return (
@@ -1121,11 +1161,12 @@ export default function ProjectDetail() {
                   project={project}
                   onRevisionAccepted={async () => {
                     // Wait a bit for backend to complete all operations
-                    await new Promise(resolve => setTimeout(resolve, 800))
-                    // Refresh project data
+                    await new Promise(resolve => setTimeout(resolve, 1000))
+                    // Refresh project data then go back to file list
                     await fetchProject()
-                    // Reset active file to show updated file list
+                    // Go back to files view so user sees the updated file list
                     setActiveFile(null)
+                    setViewMode('files')
                   }}
                   onRevisionCreated={() => {
                     fetchProject()
@@ -1870,20 +1911,25 @@ export default function ProjectDetail() {
                   <div className="comparison-table-wrapper comparison-table-transposed">
                     <table className="comparison-table">
                       <colgroup>
-                        <col style={{ width: '200px' }} />
+                        <col style={{ width: '220px' }} />
                         {quotedSuppliers.map((_, i) => (
-                          <col key={i} style={{ width: '160px' }} />
+                          <col key={i} style={{ width: '180px' }} />
                         ))}
                       </colgroup>
                       <thead>
                         <tr>
-                          <th className="sticky-col label-col">Kalem</th>
+                          <th className="sticky-col label-col">Tedarikçiler</th>
                           {quotedSuppliers.map((quotation) => (
                             <th key={quotation.id} className="supplier-col">
                               <div className="supplier-info-cell">
-                                <span className="supplier-name">{quotation.supplier?.username}</span>
-                                {quotation.supplier?.company_name && (
-                                  <span className="supplier-company">{quotation.supplier.company_name}</span>
+                                <div className="supplier-avatar-badge">
+                                  {(quotation.supplier?.company_name || quotation.supplier?.username || '?').charAt(0).toUpperCase()}
+                                </div>
+                                <span className="supplier-name">
+                                  {quotation.supplier?.company_name || quotation.supplier?.username}
+                                </span>
+                                {quotation.supplier?.company_name && quotation.supplier?.username && (
+                                  <span className="supplier-username">@{quotation.supplier.username}</span>
                                 )}
                               </div>
                             </th>
@@ -1891,25 +1937,25 @@ export default function ProjectDetail() {
                         </tr>
                       </thead>
                       <tbody>
-                        <tr>
-                          <td className="sticky-col label-cell">Termin</td>
+                        <tr className="row-termin">
+                          <td className="sticky-col label-cell row-label-termin">Termin Tarihi</td>
                           {quotedSuppliers.map((quotation) => (
                             <td key={quotation.id} className="delivery-cell">
                               {quotation.delivery_date
                                 ? new Date(quotation.delivery_date).toLocaleDateString('tr-TR')
-                                : '-'}
+                                : '—'}
                             </td>
                           ))}
                         </tr>
                         {allFileItems.map((file, idx) => {
                           const label = (
                             <>
-                              <Box size={12} />
+                              <Box size={13} />
                               <span className="part-name" title={file.file_name}>
-                                {file.file_name.length > 20 ? file.file_name.substring(0, 17) + '...' : file.file_name}
+                                {file.file_name}
                               </span>
                               {file.revision && <span className="part-rev">Rev.{file.revision}</span>}
-                              <span className="part-qty">x{file.quantity || 1}</span>
+                              <span className="part-qty">× {file.quantity || 1}</span>
                             </>
                           )
                           return (
@@ -1928,13 +1974,13 @@ export default function ProjectDetail() {
                                   <td key={quotation.id} className="price-cell">
                                     {item ? (
                                       <div className="price-info">
-                                        <span className="unit-price">₺{Number(item.price).toFixed(0)}</span>
+                                        <span className="unit-price">₺{Number(item.price).toLocaleString('tr-TR')}</span>
                                         <span className="total-item-price">
                                           = ₺{(Number(item.price) * Number(item.quantity)).toLocaleString('tr-TR')}
                                         </span>
                                       </div>
                                     ) : (
-                                      <span className="no-price">-</span>
+                                      <span className="no-price">—</span>
                                     )}
                                   </td>
                                 )
@@ -2017,6 +2063,92 @@ export default function ProjectDetail() {
           </div>
         )
       })()}
+
+      {/* ── Confirm Modal ── */}
+      {confirmModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '16px',
+            padding: '2rem',
+            maxWidth: '420px', width: '90%',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.6)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: '10px', display: 'flex',
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                background: confirmModal.type === 'accept' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'
+              }}>
+                {confirmModal.type === 'accept'
+                  ? <CheckCircle size={22} color="#10b981" />
+                  : <XCircle size={22} color="#ef4444" />}
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
+                {confirmModal.type === 'accept' ? 'Teklifi Kabul Et' : confirmModal.type === 'delete' ? 'Dökümanı Sil' : 'Teklifi Reddet'}
+              </h3>
+            </div>
+
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1.5rem' }}
+               dangerouslySetInnerHTML={{ __html: confirmModal.message }} />
+
+            {confirmModal.type === 'accept' && (
+              <div style={{
+                background: 'rgba(0,212,170,0.08)', border: '1px solid rgba(0,212,170,0.2)',
+                borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1.5rem',
+                fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5
+              }}>
+                Onay sonrası iki tarafa da e-posta ile sözleşme (Purchase Order) gönderilecektir.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setConfirmModal(null)}
+                style={{ minWidth: '90px' }}
+              >
+                İptal
+              </button>
+              <button
+                className="btn"
+                style={{
+                  minWidth: '120px',
+                  background: confirmModal.type === 'accept'
+                    ? 'linear-gradient(135deg,#10b981,#059669)'
+                    : 'linear-gradient(135deg,#ef4444,#dc2626)',
+                  color: '#fff'
+                }}
+                onClick={confirmModal.onConfirm}
+              >
+                {confirmModal.type === 'accept' ? 'Evet, Kabul Et' : confirmModal.type === 'delete' ? 'Evet, Sil' : 'Evet, Reddet'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast ── */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 10000,
+          background: toastMsg.ok ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+          border: `1px solid ${toastMsg.ok ? '#10b981' : '#ef4444'}`,
+          borderRadius: '10px', padding: '1rem 1.5rem',
+          color: toastMsg.ok ? '#10b981' : '#ef4444',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          fontSize: '0.9rem', maxWidth: '380px', animation: 'slideUp 0.3s ease'
+        }}>
+          {toastMsg.ok ? <CheckCircle size={18} /> : <XCircle size={18} />}
+          {toastMsg.text}
+        </div>
+      )}
     </div>
   )
 }

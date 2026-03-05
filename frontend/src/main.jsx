@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom'
 import * as Sentry from "@sentry/react"
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
+import { ToastProvider } from './context/ToastContext'
 import './styles/global.css'
 
 // Initialize Sentry (only if DSN is provided)
@@ -33,7 +35,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <ThemeProvider>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

@@ -216,12 +216,12 @@ export default function Home() {
   }
 
   return (
-    <div className="home-page">
+    <div className="home-page" data-theme="dark">
       {/* Header */}
       <header className="home-header">
         <div className="header-content">
           <div className="logo-section">
-            <img src="/logo.png" alt="Kunye.tech" className="home-logo" />
+            <img src="/LOGO.png" alt="Kunye.tech" className="home-logo" />
             <span className="logo-text">Kunye<span className="logo-accent">.tech</span></span>
           </div>
           <nav className="header-nav">
@@ -231,9 +231,9 @@ export default function Home() {
             <button className="btn-text" onClick={() => setShowLogin(true)}>
               Giriş Yap
             </button>
-            <button className="btn-primary" onClick={() => setShowRegister(true)}>
-              Başlayın
-            </button>
+            <a href="#contact" className="btn-primary">
+              Demo İsteği
+            </a>
           </nav>
         </div>
       </header>
@@ -254,10 +254,10 @@ export default function Home() {
             kolayca çalışın. Tüm süreçleri tek bir platformda birleştirin.
           </p>
           <div className="hero-actions">
-            <button className="btn-hero-primary" onClick={() => setShowRegister(true)}>
-              Ücretsiz Başlayın
+            <a href="#contact" className="btn-hero-primary">
+              Demo İsteği
               <ArrowRight size={20} />
-            </button>
+            </a>
             <button className="btn-hero-secondary" onClick={() => setShowLogin(true)}>
               Giriş Yap
             </button>
@@ -441,23 +441,11 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="cta-section">
-        <div className="section-container">
-          <h2>Hemen Başlayın</h2>
-          <p>Ücretsiz kaydolun ve projelerinizi dijitalleştirmeye başlayın</p>
-          <button className="btn-cta" onClick={() => setShowRegister(true)}>
-            Ücretsiz Başlayın
-            <ArrowRight size={20} />
-          </button>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="home-footer">
         <div className="footer-content">
           <div className="footer-logo">
-            <img src="/logo.png" alt="Kunye.tech" className="footer-logo-img" />
+            <img src="/LOGO.png" alt="Kunye.tech" className="footer-logo-img" />
             <span>Kunye.tech</span>
           </div>
           <div className="footer-links">
@@ -546,14 +534,6 @@ export default function Home() {
                   >
                     <Building2 size={16} />
                     Müşteri Girişi
-                  </button>
-                  <button
-                    type="button"
-                    className={`tab-btn ${loginUserType === 'admin' ? 'active' : ''}`}
-                    onClick={() => setLoginUserType('admin')}
-                  >
-                    <Shield size={16} />
-                    Admin Girişi
                   </button>
                 </div>
 

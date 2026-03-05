@@ -11,18 +11,24 @@ import {
   Package
 } from 'lucide-react'
 import { api } from '../lib/api'
+import { useToast } from '../context/ToastContext'
 import './RevisionManager.css'
 
 export const RevisionManager = ({ projectId, file, userRole, project, onRevisionAccepted, onRevisionCreated }) => {
+  const { showToast } = useToast()
   const [revisionRequests, setRevisionRequests] = useState([])
-  const [allRevisionRequests, setAllRevisionRequests] = useState([]) // All requests for checking pending status
+  const [allRevisionRequests, setAllRevisionRequests] = useState([])
   const [revisionHistory, setRevisionHistory] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const [showCompletedRequests, setShowCompletedRequests] = useState(false) // New: for collapsible completed requests
-  const [isExpanded, setIsExpanded] = useState(false) // New: for collapsible entire manager
+  const [showCompletedRequests, setShowCompletedRequests] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
-  
+
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState(null)
+  // { type: 'accept'|'cancel'|'reject', requestId, onConfirm, message, inputMode, inputValue }
+
   // Supplier quotation states
   const [quotingRequestId, setQuotingRequestId] = useState(null)
   const [quotedPrice, setQuotedPrice] = useState('')
@@ -110,7 +116,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
     if (revisionType === 'geometry' || revisionType === 'both') {
       const ext = selectedFile.name.split('.').pop().toLowerCase()
       if (!['step', 'stp', 'pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
-        alert('Geçerli bir dosya formatı seçin (STEP, PDF, veya resim)')
+        showToast('Geçerli bir dosya formatı seçin (STEP, PDF, veya resim)', 'warning')
         return
       }
     }
@@ -155,7 +161,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       const result = await api.createRevisionRequest(projectId, file.id, payload)
       console.log('Revision request created:', result)
       
-      alert('Revizyon talebi oluşturuldu. Tedarikçi onayını bekliyor.')
+      showToast('Revizyon talebi oluşturuldu. Tedarikçi onayını bekliyor.', 'success')
       setShowCreateModal(false)
       resetForm()
       loadRevisionRequests()
@@ -171,38 +177,37 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
         response: error.response,
         data: error.response?.data
       })
-      alert(error.message || error.response?.data?.error || 'Revizyon talebi oluşturulamadı.')
+      showToast(error.message || error.response?.data?.error || 'Revizyon talebi oluşturulamadı.', 'error')
     } finally {
       setUploading(false)
     }
   }
 
   const handleAcceptRevision = async (requestId) => {
-    if (!confirm('Bu revizyonu kabul etmek istediğinize emin misiniz? Proje fiyat ve termin güncellenecek.')) return
-
-    try {
-      setLoading(true)
-      await api.acceptRevisionRequest(requestId)
-      alert('Revizyon kabul edildi ve uygulandı.')
-      
-      // Reload revision requests first
-      await loadRevisionRequests()
-      
-      // Then notify parent to refresh entire project
-      if (onRevisionAccepted) {
-        onRevisionAccepted()
+    setConfirmModal({
+      type: 'accept',
+      message: 'Bu revizyonu kabul etmek istediğinize emin misiniz? Proje fiyat ve termin güncellenecek.',
+      onConfirm: async () => {
+        setConfirmModal(null)
+        try {
+          setLoading(true)
+          await api.acceptRevisionRequest(requestId)
+          showToast('Revizyon kabul edildi ve uygulandı.', 'success')
+          await loadRevisionRequests()
+          if (onRevisionAccepted) onRevisionAccepted()
+        } catch (error) {
+          console.error('Accept revision error:', error)
+          showToast(error.message || 'Revizyon kabul edilemedi.', 'error')
+        } finally {
+          setLoading(false)
+        }
       }
-    } catch (error) {
-      console.error('Accept revision error:', error)
-      alert(error.message || 'Revizyon kabul edilemedi.')
-    } finally {
-      setLoading(false)
-    }
+    })
   }
 
   const handleQuoteRevision = async (requestId) => {
     if (!quotedPrice || !quotedDeadline) {
-      alert('Lütfen fiyat ve termin bilgisi girin.')
+      showToast('Lütfen fiyat ve termin bilgisi girin.', 'warning')
       return
     }
 
@@ -213,7 +218,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
         quoted_deadline: quotedDeadline,
         quoted_note: quotedNote
       })
-      alert('Revizyon teklifi gönderildi. Müşteri onayını bekliyor.')
+      showToast('Revizyon teklifi gönderildi. Müşteri onayını bekliyor.', 'success')
       setQuotingRequestId(null)
       setQuotedPrice('')
       setQuotedDeadline('')
@@ -221,48 +226,56 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       loadRevisionRequests()
     } catch (error) {
       console.error('Quote revision error:', error)
-      alert(error.message || 'Revizyon teklifi gönderilemedi.')
+      showToast(error.message || 'Revizyon teklifi gönderilemedi.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
   const handleRejectRevision = async (requestId) => {
-    const reason = prompt('Red nedeni:')
-    if (!reason) return
-
-    try {
-      setLoading(true)
-      await api.rejectRevisionRequest(requestId, reason)
-      alert('Revizyon talebi reddedildi.')
-      loadRevisionRequests()
-    } catch (error) {
-      console.error('Reject revision error:', error)
-      alert(error.message || 'Revizyon reddedilemedi.')
-    } finally {
-      setLoading(false)
-    }
+    setConfirmModal({
+      type: 'reject',
+      message: 'Red nedenini girin:',
+      inputMode: true,
+      inputValue: '',
+      onConfirm: async (reason) => {
+        if (!reason?.trim()) return
+        setConfirmModal(null)
+        try {
+          setLoading(true)
+          await api.rejectRevisionRequest(requestId, reason)
+          showToast('Revizyon talebi reddedildi.', 'success')
+          loadRevisionRequests()
+        } catch (error) {
+          console.error('Reject revision error:', error)
+          showToast(error.message || 'Revizyon reddedilemedi.', 'error')
+        } finally {
+          setLoading(false)
+        }
+      }
+    })
   }
 
   const handleCancelRevision = async (requestId) => {
-    if (!confirm('Bu revizyon talebini iptal etmek istediğinize emin misiniz?')) return
-
-    try {
-      setLoading(true)
-      await api.cancelRevisionRequest(requestId)
-      alert('Revizyon talebi iptal edildi.')
-      loadRevisionRequests()
-      
-      // Refresh project files to remove preview files
-      if (onRevisionCreated) {
-        onRevisionCreated()
+    setConfirmModal({
+      type: 'cancel',
+      message: 'Bu revizyon talebini iptal etmek istediğinize emin misiniz?',
+      onConfirm: async () => {
+        setConfirmModal(null)
+        try {
+          setLoading(true)
+          await api.cancelRevisionRequest(requestId)
+          showToast('Revizyon talebi iptal edildi.', 'success')
+          loadRevisionRequests()
+          if (onRevisionCreated) onRevisionCreated()
+        } catch (error) {
+          console.error('Cancel revision error:', error)
+          showToast(error.message || 'Revizyon iptal edilemedi.', 'error')
+        } finally {
+          setLoading(false)
+        }
       }
-    } catch (error) {
-      console.error('Cancel revision error:', error)
-      alert(error.message || 'Revizyon iptal edilemedi.')
-    } finally {
-      setLoading(false)
-    }
+    })
   }
 
   const resetForm = () => {
@@ -295,6 +308,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
 
   return (
     <div className="revision-manager-card">
+      <ConfirmModal />
       <div 
         className="revision-card-header clickable"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -723,8 +737,7 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       {showCreateModal && (
         <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Revizyon Talebi Oluştur</h3>
-            
+            <h3>Revizyon Talebi Oluştur</h3>            
             <div className="form-group">
               <label>Revizyon Tipi</label>
               <select 
@@ -817,5 +830,79 @@ export const RevisionManager = ({ projectId, file, userRole, project, onRevision
       )}
     </div>
   )
+
+  function ConfirmModal() {
+    const [inputVal, setInputVal] = useState('')
+    if (!confirmModal) return null
+    const isReject = confirmModal.inputMode
+    const isAccept = confirmModal.type === 'accept'
+    const isCancel = confirmModal.type === 'cancel'
+
+    return (
+      <div
+        className="modal-overlay"
+        onClick={() => setConfirmModal(null)}
+        style={{ zIndex: 9999 }}
+      >
+        <div
+          className="modal-content"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: 420 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+            {isAccept && <CheckCircle size={22} color="#10b981" />}
+            {isCancel && <XCircle size={22} color="#f59e0b" />}
+            {isReject && <XCircle size={22} color="#ef4444" />}
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>
+              {isAccept ? 'Revizyonu Onayla' : isCancel ? 'Talebi İptal Et' : 'Talebi Reddet'}
+            </h3>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+            {confirmModal.message}
+          </p>
+          {isReject && (
+            <textarea
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              placeholder="Red nedenini yazın..."
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-input)',
+                color: 'var(--text-primary)',
+                fontSize: '0.875rem',
+                resize: 'vertical',
+                marginBottom: '1rem',
+                boxSizing: 'border-box'
+              }}
+            />
+          )}
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+            <button
+              className="btn-cancel"
+              onClick={() => setConfirmModal(null)}
+            >
+              İptal
+            </button>
+            <button
+              className={isAccept ? 'btn-accept' : 'btn-reject'}
+              onClick={() => {
+                if (isReject) confirmModal.onConfirm(inputVal)
+                else confirmModal.onConfirm()
+              }}
+              disabled={isReject && !inputVal.trim()}
+            >
+              {isAccept && <><CheckCircle size={15} /> Onayla</>}
+              {isCancel && <><XCircle size={15} /> İptal Et</>}
+              {isReject && <><XCircle size={15} /> Reddet</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 }
 

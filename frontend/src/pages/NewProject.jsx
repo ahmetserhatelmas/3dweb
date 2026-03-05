@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import { 
   ArrowLeft, ArrowRight, Save, Upload, 
   FileBox, Box, LogOut, Users, X, File,
-  FileText, FileSpreadsheet, Image, Check, UserPlus, DollarSign
+  FileText, FileSpreadsheet, Image, Check, UserPlus, DollarSign,
+  Settings, Sun, Moon
 } from 'lucide-react'
 import './NewProject.css'
 
@@ -37,6 +39,9 @@ const getFileIcon = (type) => {
 
 export default function NewProject() {
   const { user, token, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [suppliers, setSuppliers] = useState([])
@@ -386,7 +391,7 @@ export default function NewProject() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
 
@@ -419,18 +424,31 @@ export default function NewProject() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar">
-              {user?.username?.charAt(0).toUpperCase()}
+          <div className="user-info-wrap" ref={settingsRef}>
+            <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer' }}>
+              <div className="user-avatar">
+                {user?.username?.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <span className="user-name">{user?.username}</span>
+                <span className="user-role-label">{isCustomer ? 'Müşteri' : 'Admin'}</span>
+              </div>
+              <Settings size={16} className="settings-icon" />
             </div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-role">{isCustomer ? 'Müşteri' : 'Admin'}</span>
-            </div>
+            {settingsOpen && (
+              <div className="settings-dropdown">
+                <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
+                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                  {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+                </button>
+                <div className="settings-dropdown-divider" />
+                <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+                  <LogOut size={16} />
+                  Çıkış Yap
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
         </div>
       </aside>
 

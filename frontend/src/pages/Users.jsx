@@ -1,16 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Users as UsersIcon, FileBox, 
   Trash2, Building2, Mail, Shield, User as UserIcon, Edit2, Settings, UserPlus, Copy, Check,
-  ChevronRight, Link as LinkIcon
+  ChevronRight, Link as LinkIcon, DollarSign, Sun, Moon
 } from 'lucide-react'
 import './Users.css'
+import './Dashboard.css'
 
 export default function Users() {
   const { user, token, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const [users, setUsers] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [loadingSuppliers, setLoadingSuppliers] = useState(false)
@@ -304,7 +309,7 @@ export default function Users() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
 
@@ -318,26 +323,45 @@ export default function Users() {
             <span>{isCustomer ? 'Tedarikçiler' : 'Kullanıcılar'}</span>
           </Link>
           {isCustomer && (
-            <Link to={`${basePath}/users`} className="nav-item">
-              <UsersIcon size={20} />
-              <span>Kullanıcılar</span>
-            </Link>
+            <>
+              <Link to={`${basePath}/users`} className="nav-item">
+                <UserPlus size={20} />
+                <span>Kullanıcılar</span>
+              </Link>
+              <Link to={`${basePath}/archive`} className="nav-item">
+                <DollarSign size={20} />
+                <span>Arşiv Teklifler</span>
+              </Link>
+            </>
           )}
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar">
-              {user?.username?.charAt(0).toUpperCase()}
+          <div className="user-info-wrap" ref={settingsRef}>
+            <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer', flex: 1 }}>
+              <div className="user-avatar">
+                {user?.username?.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <span className="user-name">{user?.username}</span>
+                <span className="user-role-label">{isCustomer ? 'Müşteri' : 'Admin'}</span>
+              </div>
+              <Settings size={16} className="settings-icon" />
             </div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-role">{isCustomer ? 'Müşteri' : 'Admin'}</span>
-            </div>
+            {settingsOpen && (
+              <div className="settings-dropdown">
+                <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
+                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                  {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+                </button>
+                <div className="settings-dropdown-divider" />
+                <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+                  <LogOut size={16} />
+                  Çıkış Yap
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
         </div>
       </aside>
 

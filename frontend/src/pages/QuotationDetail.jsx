@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import API_URL from '../lib/api'
 import { formatCurrencyInput, parseCurrency, formatCurrency } from '../lib/formatters'
 import { 
@@ -21,6 +22,7 @@ const getFileIcon = (type) => {
     case 'iges': return <Box size={20} className="file-icon iges" />
     case 'parasolid': return <Box size={20} className="file-icon parasolid" />
     case 'pdf': return <FileText size={20} className="file-icon pdf" />
+    case 'document': return <FileText size={20} className="file-icon pdf" />
     case 'excel': return <FileSpreadsheet size={20} className="file-icon excel" />
     case 'image': return <Image size={20} className="file-icon image" />
     default: return <File size={20} className="file-icon" />
@@ -31,6 +33,7 @@ export default function QuotationDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { token } = useAuth()
+  const { showToast } = useToast()
   const [project, setProject] = useState(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -210,12 +213,12 @@ export default function QuotationDetail() {
     
     // Validate ALL step files have a price
     if (!allStepFilesHavePrices()) {
-      alert('Lütfen tüm STEP dosyaları için fiyat giriniz.')
+      showToast('Lütfen tüm STEP dosyaları için fiyat giriniz.', 'warning')
       return
     }
 
     if (!deliveryDate) {
-      alert('Lütfen termin tarihi giriniz.')
+      showToast('Lütfen termin tarihi giriniz.', 'warning')
       return
     }
 
@@ -241,15 +244,15 @@ export default function QuotationDetail() {
       })
 
       if (res.ok) {
-        alert('Teklif başarıyla gönderildi!')
-        fetchProject() // Refresh to show updated status
+        showToast('Teklif başarıyla gönderildi!', 'success')
+        fetchProject()
       } else {
         const data = await res.json()
-        alert(data.error || 'Teklif gönderilemedi.')
+        showToast(data.error || 'Teklif gönderilemedi.', 'error')
       }
     } catch (error) {
       console.error('Submit quote error:', error)
-      alert('Bir hata oluştu.')
+      showToast('Bir hata oluştu.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -323,9 +326,11 @@ export default function QuotationDetail() {
     const streamUrl = useStream ? `${API_URL}/api/projects/${project.id}/files/${file.id}/stream` : null
     const fetchOptions = useStream ? { headers: { Authorization: `Bearer ${token}` } } : undefined
     const fileUrl = streamUrl || file.file_url
+    const ft = (file.file_type || '').toLowerCase()
 
-    switch (file.file_type) {
+    switch (ft) {
       case 'step':
+      case 'stp':
         return <StepViewer fileUrl={fileUrl} fetchOptions={fetchOptions} />
       case 'dxf':
         return <DxfViewer fileUrl={fileUrl} fileName={file.file_name} fetchOptions={fetchOptions} />
@@ -349,6 +354,40 @@ export default function QuotationDetail() {
             className="pdf-preview"
             title={file.file_name}
           />
+        )
+      case 'document':
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+            <iframe
+              src={file.file_url}
+              className="pdf-preview"
+              title={file.file_name}
+              style={{ flex: 1, border: 'none', minHeight: '500px' }}
+            />
+            <div style={{
+              padding: '0.75rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderTop: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              gap: '0.75rem'
+            }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {file.file_name}
+              </span>
+              <a
+                href={file.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}
+              >
+                <Download size={15} />
+                İndir
+              </a>
+            </div>
+          </div>
         )
       case 'excel':
         return (
@@ -438,6 +477,23 @@ export default function QuotationDetail() {
                 <span className="meta-item deadline">
                   <Calendar size={16} />
                   Termin: {new Date(project.deadline).toLocaleDateString('tr-TR')}
+                </span>
+              )}
+              {project.payment_due_date && (
+                <span className="meta-item" style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  padding: '0.3rem 0.75rem',
+                  background: 'rgba(245,158,11,0.12)',
+                  border: '1px solid rgba(245,158,11,0.3)',
+                  borderRadius: '20px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  color: '#f59e0b'
+                }}>
+                  <DollarSign size={14} />
+                  Ödeme Vadesi: {new Date(project.payment_due_date).toLocaleDateString('tr-TR')}
                 </span>
               )}
             </div>
@@ -864,6 +920,32 @@ export default function QuotationDetail() {
                       />
                     </div>
                   </div>
+
+                  {project.payment_due_date && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem',
+                      padding: '0.875rem 1rem',
+                      background: 'rgba(245,158,11,0.08)',
+                      border: '1px solid rgba(245,158,11,0.25)',
+                      borderRadius: '10px',
+                      marginBottom: '0.75rem'
+                    }}>
+                      <DollarSign size={18} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '1px' }} />
+                      <div>
+                        <div style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                          Müşteri Ödeme Vadesi
+                        </div>
+                        <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: '600' }}>
+                          {new Date(project.payment_due_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          Müşteri faturayı bu tarihe kadar ödeyecektir.
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <button 
                     type="submit" 

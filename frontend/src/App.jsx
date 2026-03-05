@@ -16,6 +16,7 @@ import Quotations from './pages/Quotations'
 import QuotationDetail from './pages/QuotationDetail'
 import KVKK from './pages/KVKK'
 import ResetPassword from './pages/ResetPassword'
+import AdminLogin from './pages/AdminLogin'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth()
@@ -30,6 +31,10 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (!user) {
+    // Admin-only routes redirect to dedicated admin login page
+    if (allowedRoles && allowedRoles.length === 1 && allowedRoles[0] === 'admin') {
+      return <Navigate to="/admin-login" replace />
+    }
     return <Navigate to="/" replace />
   }
 
@@ -66,6 +71,7 @@ export default function App() {
       <Route path="/invite/:inviteCode" element={<InviteAccept />} />
       <Route path="/kvkk" element={<KVKK />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/admin-login" element={<AdminLogin />} />
       
       {/* Admin Routes */}
       <Route path="/admin" element={

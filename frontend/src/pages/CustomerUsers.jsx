@@ -1,15 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import { 
-  Plus, LogOut, Box, Users as UsersIcon, FileBox, 
-  Trash2, Building2, Mail, User as UserIcon, Copy, Check, UserPlus, Shield, DollarSign
+  LogOut, FileBox, Users as UsersIcon,
+  Trash2, Mail, User as UserIcon, Copy, Check, UserPlus, Shield,
+  DollarSign, Settings, Sun, Moon
 } from 'lucide-react'
 import './Users.css'
+import './Dashboard.css'
 
 export default function CustomerUsers() {
   const { user, token, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [inviteCode, setInviteCode] = useState('')
@@ -23,6 +29,16 @@ export default function CustomerUsers() {
   const isCustomer = user?.role === 'customer'
   const isCustomerAdmin = user?.is_customer_admin
   const basePath = isCustomer ? '/customer' : '/admin'
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     fetchUsers()
@@ -109,49 +125,68 @@ export default function CustomerUsers() {
     }
   }
 
+  const sidebarNav = (
+    <nav className="sidebar-nav">
+      <Link to={basePath} className="nav-item">
+        <FileBox size={20} />
+        <span>Projeler</span>
+      </Link>
+      <Link to={`${basePath}/suppliers`} className="nav-item">
+        <UsersIcon size={20} />
+        <span>Tedarikçiler</span>
+      </Link>
+      <Link to={`${basePath}/users`} className="nav-item active">
+        <UserPlus size={20} />
+        <span>Kullanıcılar</span>
+      </Link>
+      <Link to={`${basePath}/archive`} className="nav-item">
+        <DollarSign size={20} />
+        <span>Arşiv Teklifler</span>
+      </Link>
+    </nav>
+  )
+
+  const sidebarFooter = (
+    <div className="sidebar-footer">
+      <div className="user-info-wrap" ref={settingsRef}>
+        <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer' }}>
+          <div className="user-avatar">
+            {user?.username?.charAt(0).toUpperCase()}
+          </div>
+          <div className="user-details">
+            <span className="user-name">{user?.username}</span>
+            <span className="user-role-label">{isCustomerAdmin ? 'Müşteri Admin' : 'Müşteri'}</span>
+          </div>
+          <Settings size={16} className="settings-icon" />
+        </div>
+        {settingsOpen && (
+          <div className="settings-dropdown">
+            <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+            </button>
+            <div className="settings-dropdown-divider" />
+            <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+              <LogOut size={16} />
+              Çıkış Yap
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   // If not customer admin, show access denied
   if (!isCustomerAdmin) {
     return (
       <div className="layout">
         <aside className="sidebar">
           <div className="sidebar-header">
-            <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+            <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
             <span>Kunye.tech</span>
           </div>
-
-          <nav className="sidebar-nav">
-            <Link to={basePath} className="nav-item">
-              <FileBox size={20} />
-              <span>Projeler</span>
-            </Link>
-            <Link to={`${basePath}/suppliers`} className="nav-item">
-              <UsersIcon size={20} />
-              <span>Tedarikçiler</span>
-            </Link>
-            <Link to={`${basePath}/users`} className="nav-item active">
-              <UserPlus size={20} />
-              <span>Kullanıcılar</span>
-            </Link>
-            <Link to={`${basePath}/archive`} className="nav-item">
-              <DollarSign size={20} />
-              <span>Arşiv Teklifler</span>
-            </Link>
-          </nav>
-
-          <div className="sidebar-footer">
-            <div className="user-info">
-              <div className="user-avatar">
-                {user?.username?.charAt(0).toUpperCase()}
-              </div>
-              <div className="user-details">
-                <span className="user-name">{user?.username}</span>
-                <span className="user-role">Müşteri Kullanıcısı</span>
-              </div>
-            </div>
-            <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-              <LogOut size={18} />
-            </button>
-          </div>
+          {sidebarNav}
+          {sidebarFooter}
         </aside>
 
         <main className="main-content">
@@ -232,43 +267,11 @@ export default function CustomerUsers() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
-
-          <nav className="sidebar-nav">
-            <Link to={basePath} className="nav-item">
-              <FileBox size={20} />
-              <span>Projeler</span>
-            </Link>
-            <Link to={`${basePath}/suppliers`} className="nav-item">
-              <UsersIcon size={20} />
-              <span>Tedarikçiler</span>
-            </Link>
-            <Link to={`${basePath}/users`} className="nav-item active">
-              <UserPlus size={20} />
-              <span>Kullanıcılar</span>
-            </Link>
-            <Link to={`${basePath}/archive`} className="nav-item">
-              <DollarSign size={20} />
-              <span>Arşiv Teklifler</span>
-            </Link>
-          </nav>
-
-        <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar">
-              {user?.username?.charAt(0).toUpperCase()}
-            </div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-role">Müşteri Admin</span>
-            </div>
-          </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
-        </div>
+        {sidebarNav}
+        {sidebarFooter}
       </aside>
 
       <main className="main-content">
@@ -410,7 +413,7 @@ export default function CustomerUsers() {
                     transition: 'width 0.3s'
                   }} />
                 </div>
-                {usageStats?.usage?.storage_unknown && (
+                {usageStats.usage.storage_unknown && (
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                     Eski dosyaların boyutu veritabanında kayıtlı değil; yeni yüklemeler sayılır.
                   </div>

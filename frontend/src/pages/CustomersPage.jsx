@@ -1,17 +1,32 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import { 
-  LogOut, FileBox, Send, Users, Building2, Calendar, User
+  LogOut, FileBox, Send, Users, Building2, Calendar, User,
+  Settings, Sun, Moon
 } from 'lucide-react'
 import './Dashboard.css'
 
 export default function CustomersPage() {
   const { user, token, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [pendingQuotationsCount, setPendingQuotationsCount] = useState(0)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     fetchCustomers()
@@ -53,7 +68,7 @@ export default function CustomersPage() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
 
@@ -79,21 +94,31 @@ export default function CustomersPage() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar user">
-              {user?.username?.charAt(0).toUpperCase()}
+          <div className="user-info-wrap" ref={settingsRef}>
+            <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer', flex: 1 }}>
+              <div className="user-avatar user">
+                {user?.username?.charAt(0).toUpperCase()}
+              </div>
+              <div className="user-details">
+                <span className="user-name">{user?.username}</span>
+                <span className="user-role-label">Tedarikçi</span>
+              </div>
+              <Settings size={16} className="settings-icon" />
             </div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-company">
-                <Building2 size={12} />
-                {user?.company_name}
-              </span>
-            </div>
+            {settingsOpen && (
+              <div className="settings-dropdown">
+                <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
+                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                  {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+                </button>
+                <div className="settings-dropdown-divider" />
+                <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+                  <LogOut size={16} />
+                  Çıkış Yap
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
         </div>
       </aside>
 

@@ -1,70 +1,68 @@
 /**
- * Format number to Turkish currency format
- * Example: 1234567.89 -> 1.234.567,89
+ * Para birimi formatlama yardımcı fonksiyonları
+ */
+
+/**
+ * Sayıyı binlik ayraçlı Türk para birimi formatına çevirir
+ * Örnek: 1234.5 → "1.234,50"
  */
 export function formatCurrency(value) {
-  if (value === null || value === undefined || value === '') return ''
-  
-  const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return ''
-  
-  // Split into integer and decimal parts
-  const [integerPart, decimalPart = '00'] = num.toFixed(2).split('.')
-  
-  // Format integer part with dots
-  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  
-  // Combine with comma for decimals
-  return `${formattedInteger},${decimalPart}`
+  if (value === null || value === undefined || isNaN(value)) return '0,00'
+  return Number(value).toLocaleString('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })
 }
 
 /**
- * Parse Turkish formatted currency to number
- * Example: 1.234.567,89 -> 1234567.89
+ * Input alanı için para birimi formatı (yazarken)
+ * Sadece rakam ve virgül/nokta kabul eder, binlik nokta ekler
+ * Örnek: "1234,5" → "1.234,5"
+ */
+export function formatCurrencyInput(value) {
+  if (value === null || value === undefined) return ''
+  const str = String(value)
+  // Sadece rakam, nokta ve virgül bırak
+  const cleaned = str.replace(/[^\d.,]/g, '')
+  // Virgülü ondalık ayraç olarak kullan, noktaları kaldır
+  const normalized = cleaned.replace(/\./g, '').replace(',', '.')
+  const parts = normalized.split('.')
+  const intPart = parts[0] || ''
+  const decPart = parts[1] !== undefined ? ',' + parts[1] : ''
+  // Binlik nokta ekle
+  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return formatted + decPart
+}
+
+/**
+ * Para birimi string'ini sayıya çevirir
+ * Örnek: "1.234,50" → 1234.50
  */
 export function parseCurrency(value) {
-  if (!value) return 0
-  
-  // Remove dots (thousand separators) and replace comma with dot
-  const cleaned = value.toString().replace(/\./g, '').replace(',', '.')
-  const num = parseFloat(cleaned)
-  
+  if (value === null || value === undefined || value === '') return 0
+  const str = String(value)
+  // Binlik noktaları kaldır, virgülü noktaya çevir
+  const normalized = str.replace(/\./g, '').replace(',', '.')
+  const num = parseFloat(normalized)
   return isNaN(num) ? 0 : num
 }
 
 /**
- * Format input value while typing
- * Allows only numbers, dots, and comma
+ * Input değerini temizleyip ham sayıya çevirir
  */
-export function formatCurrencyInput(value) {
-  if (value === null || value === undefined) return ''
-  
-  // Convert to string (numbers from API come as number)
-  const str = typeof value === 'number' ? String(value) : String(value)
-  if (str === '' || str === 'NaN') return ''
-  
-  // Remove all non-numeric characters except comma
-  let cleaned = str.replace(/[^\d,]/g, '')
-  
-  // Allow only one comma
-  const parts = cleaned.split(',')
-  if (parts.length > 2) {
-    cleaned = parts[0] + ',' + parts.slice(1).join('')
-  }
-  
-  // Limit decimal places to 2
-  if (parts.length === 2 && parts[1].length > 2) {
-    cleaned = parts[0] + ',' + parts[1].substring(0, 2)
-  }
-  
-  // Format integer part with dots
-  const [integerPart, decimalPart] = cleaned.split(',')
-  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  
-  // Show decimal part; if none (e.g. value from API), add ",00"
-  if (decimalPart !== undefined) {
-    return `${formattedInteger},${decimalPart}`
-  }
-  // Number without comma (e.g. 3213) -> show as "3.213,00"
-  return formattedInteger ? `${formattedInteger},00` : ''
+export function sanitizeCurrencyInput(value) {
+  return parseCurrency(value)
+}
+
+/**
+ * Ham sayıyı input-uyumlu string'e çevirir
+ * Örnek: 1234.5 → "1.234,5"
+ */
+export function toRawCurrencyString(value) {
+  if (value === null || value === undefined || isNaN(value) || value === 0) return ''
+  const str = String(value).replace('.', ',')
+  const parts = str.split(',')
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  const decPart = parts[1] ? ',' + parts[1] : ''
+  return intPart + decPart
 }

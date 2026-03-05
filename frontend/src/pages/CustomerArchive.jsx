@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import API_URL from '../lib/api'
 import {
   ArrowLeft, FileBox, Users, Calendar, ChevronRight, LogOut,
-  Box, Plus, DollarSign, UserPlus
+  Box, Plus, DollarSign, UserPlus, Settings, Sun, Moon
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
 import './Dashboard.css'
@@ -12,6 +13,9 @@ import './ProjectDetail.css'
 
 export default function CustomerArchive() {
   const { user, token, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const { projectId } = useParams()
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
@@ -120,7 +124,7 @@ export default function CustomerArchive() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <img src="/logo.png" alt="Kunye.tech" className="sidebar-logo-img" />
+          <img src="/LOGO.png" alt="Kunye.tech" className="sidebar-logo-img" />
           <span>Kunye.tech</span>
         </div>
         <nav className="sidebar-nav">
@@ -142,16 +146,29 @@ export default function CustomerArchive() {
           </Link>
         </nav>
         <div className="sidebar-footer">
-          <div className="user-info">
-            <div className="user-avatar">{user?.username?.charAt(0).toUpperCase()}</div>
-            <div className="user-details">
-              <span className="user-name">{user?.username}</span>
-              <span className="user-role">Müşteri</span>
+          <div className="user-info-wrap" ref={settingsRef}>
+            <div className="user-info" onClick={() => setSettingsOpen(o => !o)} style={{ cursor: 'pointer', flex: 1 }}>
+              <div className="user-avatar">{user?.username?.charAt(0).toUpperCase()}</div>
+              <div className="user-details">
+                <span className="user-name">{user?.username}</span>
+                <span className="user-role-label">Müşteri</span>
+              </div>
+              <Settings size={16} className="settings-icon" />
             </div>
+            {settingsOpen && (
+              <div className="settings-dropdown">
+                <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
+                  {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                  {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
+                </button>
+                <div className="settings-dropdown-divider" />
+                <button className="settings-dropdown-item danger" onClick={() => { logout(); setSettingsOpen(false) }}>
+                  <LogOut size={16} />
+                  Çıkış Yap
+                </button>
+              </div>
+            )}
           </div>
-          <button onClick={logout} className="logout-btn" title="Çıkış Yap">
-            <LogOut size={18} />
-          </button>
         </div>
       </aside>
 
@@ -269,24 +286,25 @@ export default function CustomerArchive() {
                 <div className="comparison-table-wrapper comparison-table-transposed comparison-table-archive">
                   <table className="comparison-table">
                     <colgroup>
-                      <col style={{ width: '200px' }} />
+                      <col style={{ width: '220px' }} />
                       {allSuppliers.map((_, i) => (
-                        <col key={i} style={{ width: '160px' }} />
+                        <col key={i} style={{ width: '180px' }} />
                       ))}
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className="sticky-col label-col">Kalem</th>
+                        <th className="sticky-col label-col">Tedarikçiler</th>
                         {allSuppliers.map((quotation) => (
                           <th key={quotation.id} className="supplier-col">
                             <div className="supplier-info-cell">
+                              <div className="supplier-avatar-badge">
+                                {(quotation.supplier?.company_name || quotation.supplier?.username || '?').charAt(0).toUpperCase()}
+                              </div>
                               <span className="supplier-name">
-                                {quotation.supplier?.username}
+                                {quotation.supplier?.company_name || quotation.supplier?.username}
                               </span>
-                              {quotation.supplier?.company_name && (
-                                <span className="supplier-company">
-                                  {quotation.supplier.company_name}
-                                </span>
+                              {quotation.supplier?.company_name && quotation.supplier?.username && (
+                                <span className="supplier-username">@{quotation.supplier.username}</span>
                               )}
                             </div>
                           </th>
@@ -294,8 +312,8 @@ export default function CustomerArchive() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td className="sticky-col label-cell">Termin</td>
+                      <tr className="row-termin">
+                        <td className="sticky-col label-cell row-label-termin">Termin Tarihi</td>
                         {allSuppliers.map((quotation) => {
                           const delivery =
                             quotation.quotation?.[0]?.delivery_date || quotation.delivery_date
@@ -303,7 +321,7 @@ export default function CustomerArchive() {
                             <td key={quotation.id} className="delivery-cell">
                               {delivery
                                 ? new Date(delivery).toLocaleDateString('tr-TR')
-                                : ''}
+                                : '—'}
                             </td>
                           )
                         })}
@@ -312,16 +330,14 @@ export default function CustomerArchive() {
                         <tr key={idx}>
                           <td className="sticky-col label-cell part-label">
                             <div className="part-header">
-                              <Box size={12} />
+                              <Box size={13} />
                               <span className="part-name" title={file.file_name}>
-                                {file.file_name.length > 20
-                                  ? file.file_name.substring(0, 17) + '...'
-                                  : file.file_name}
+                                {file.file_name}
                               </span>
                               {file.revision && (
                                 <span className="part-rev">Rev.{file.revision}</span>
                               )}
-                              <span className="part-qty">x{file.quantity || 1}</span>
+                              <span className="part-qty">× {file.quantity || 1}</span>
                             </div>
                           </td>
                           {allSuppliers.map((quotation) => {
@@ -337,17 +353,14 @@ export default function CustomerArchive() {
                                 {item ? (
                                   <div className="price-info">
                                     <span className="unit-price">
-                                      ₺{Number(item.price).toFixed(0)}
+                                      ₺{Number(item.price).toLocaleString('tr-TR')}
                                     </span>
                                     <span className="total-item-price">
-                                      = ₺
-                                      {(
-                                        Number(item.price) * Number(item.quantity)
-                                      ).toLocaleString('tr-TR')}
+                                      = ₺{(Number(item.price) * Number(item.quantity)).toLocaleString('tr-TR')}
                                     </span>
                                   </div>
                                 ) : (
-                                  <span className="no-price"></span>
+                                  <span className="no-price">—</span>
                                 )}
                               </td>
                             )
@@ -357,7 +370,7 @@ export default function CustomerArchive() {
                       <tr>
                         <td className="sticky-col label-cell extra-label">
                           <div className="part-header extra">
-                            <Plus size={12} />
+                            <Plus size={13} />
                             <span className="part-name">Ek İş</span>
                           </div>
                         </td>
@@ -377,14 +390,14 @@ export default function CustomerArchive() {
                                   ₺{extraTotal.toLocaleString('tr-TR')}
                                 </span>
                               ) : (
-                                <span className="no-price"></span>
+                                <span className="no-price">—</span>
                               )}
                             </td>
                           )
                         })}
                       </tr>
-                      <tr>
-                        <td className="sticky-col label-cell">Toplam</td>
+                      <tr className="row-total">
+                        <td className="sticky-col label-cell row-label-total">Toplam</td>
                         {allSuppliers.map((quotation) => {
                           const totalPrice = Number(
                             quotation.quotation?.[0]?.total_price || quotation.quoted_price || 0
@@ -393,13 +406,10 @@ export default function CustomerArchive() {
                             <td key={quotation.id} className="total-cell">
                               {totalPrice > 0 ? (
                                 <span className="total-price">
-                                  ₺
-                                  {totalPrice.toLocaleString('tr-TR', {
-                                    minimumFractionDigits: 2
-                                  })}
+                                  ₺{totalPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
                                 </span>
                               ) : (
-                                <span className="no-price"></span>
+                                <span className="no-price">—</span>
                               )}
                             </td>
                           )
