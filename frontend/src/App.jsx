@@ -17,6 +17,7 @@ import QuotationDetail from './pages/QuotationDetail'
 import KVKK from './pages/KVKK'
 import ResetPassword from './pages/ResetPassword'
 import AdminLogin from './pages/AdminLogin'
+import ProfilePage from './pages/ProfilePage'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth()
@@ -157,6 +158,12 @@ export default function App() {
       <Route path="/project/:id" element={
         <ProtectedRoute>
           <ProjectDetail />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/profile" element={
+        <ProtectedRoute allowedRoles={['customer', 'user']}>
+          <ProfilePage />
         </ProtectedRoute>
       } />
       

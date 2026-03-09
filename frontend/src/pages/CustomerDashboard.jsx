@@ -6,9 +6,10 @@ import API_URL from '../lib/api'
 import { 
   Plus, LogOut, Box, Clock, CheckCircle, 
   Eye, FileBox, Users, Calendar, ChevronRight, UserPlus, Copy, Check, Link as LinkIcon,
-  LayoutGrid, List, DollarSign, Settings, Sun, Moon
+  LayoutGrid, List, DollarSign, Settings, Sun, Moon, User
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
+import RecentActivities from '../components/RecentActivities'
 import './Dashboard.css'
 
 export default function CustomerDashboard() {
@@ -163,6 +164,16 @@ export default function CustomerDashboard() {
             </div>
             {settingsOpen && (
               <div className="settings-dropdown">
+                <Link
+                  to="/profile"
+                  className="settings-dropdown-item"
+                  onClick={() => setSettingsOpen(false)}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <User size={16} />
+                  Profilim
+                </Link>
+                <div className="settings-dropdown-divider" />
                 <button className="settings-dropdown-item" onClick={() => toggleTheme()}>
                   {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
                   {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
@@ -342,6 +353,8 @@ export default function CustomerDashboard() {
             </div>
           </div>
         </div>
+
+        <RecentActivities />
 
         <div className="filter-tabs-row">
           <div className="filter-tabs">

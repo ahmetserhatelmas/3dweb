@@ -1084,6 +1084,459 @@ router.post('/:projectId/quotations/:supplierId/extend-deadline', authenticateTo
   }
 })
 
+// =============================================
+// SON AKTİVİTELER
+// =============================================
+
+// GET /api/projects/recent-activities
+// Returns recent activity events for the current user (customer or supplier)
+router.get('/recent-activities', authenticateToken, async (req, res) => {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const db = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const activities = []
+    const limit = parseInt(req.query.limit) || 20
+
+    if (req.user.role === 'customer') {
+      let creatorIds = [req.user.id]
+      if (req.user.customer_id) {
+        creatorIds = [req.user.customer_id]
+      }
+      if (req.user.is_customer_admin) {
+        const { data: cusUsers } = await db
+          .from('customer_users')
+          .select('user_id')
+          .eq('customer_id', req.user.id)
+          .eq('status', 'active')
+        if (cusUsers?.length) creatorIds.push(...cusUsers.map(u => u.user_id))
+      }
+
+      // 1. Recently created projects
+      const { data: newProjects } = await db
+        .from('projects')
+        .select('id, name, created_at, current_revision, creator:profiles!projects_created_by_fkey(username)')
+        .in('created_by', creatorIds)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+
+      for (const p of (newProjects || [])) {
+        activities.push({
+          type: 'project_created',
+          project_id: p.id,
+          project_name: p.name,
+          timestamp: p.created_at,
+          actor: p.creator?.username || 'Müşteri',
+          meta: {}
+        })
+      }
+
+      // 2. Accepted quotations
+      const { data: acceptedQ } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          quoted_price,
+          quoted_at,
+          supplier:profiles(username, company_name),
+          project:projects!inner(id, name, created_by)
+        `)
+        .eq('status', 'accepted')
+        .in('project.created_by', creatorIds)
+        .not('quoted_at', 'is', null)
+        .order('quoted_at', { ascending: false })
+        .limit(limit)
+
+      for (const q of (acceptedQ || [])) {
+        if (!q.project) continue
+        activities.push({
+          type: 'quotation_accepted',
+          project_id: q.project.id,
+          project_name: q.project.name,
+          timestamp: q.quoted_at,
+          actor: q.supplier?.company_name || q.supplier?.username || 'Tedarikçi',
+          meta: { price: q.quoted_price }
+        })
+      }
+
+      // 3. New quotes submitted by suppliers
+      const { data: submittedQ } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          quoted_price,
+          quoted_at,
+          supplier:profiles(username, company_name),
+          project:projects!inner(id, name, created_by)
+        `)
+        .eq('status', 'quoted')
+        .in('project.created_by', creatorIds)
+        .not('quoted_at', 'is', null)
+        .order('quoted_at', { ascending: false })
+        .limit(limit)
+
+      for (const q of (submittedQ || [])) {
+        if (!q.project) continue
+        activities.push({
+          type: 'quote_submitted',
+          project_id: q.project.id,
+          project_name: q.project.name,
+          timestamp: q.quoted_at,
+          actor: q.supplier?.company_name || q.supplier?.username || 'Tedarikçi',
+          meta: { price: q.quoted_price }
+        })
+      }
+
+      // 4. Reviewing projects
+      const { data: reviewingProjects } = await db
+        .from('projects')
+        .select(`
+          id, name, updated_at, current_revision,
+          project_suppliers(
+            status,
+            supplier:profiles(username, company_name)
+          )
+        `)
+        .in('created_by', creatorIds)
+        .eq('status', 'reviewing')
+        .order('updated_at', { ascending: false })
+        .limit(limit)
+
+      for (const p of (reviewingProjects || [])) {
+        const acceptedSupplier = Array.isArray(p.project_suppliers)
+          ? p.project_suppliers.find(ps => ps.status === 'accepted')
+          : p.project_suppliers
+        const supplierName = acceptedSupplier?.supplier?.company_name || acceptedSupplier?.supplier?.username || null
+        activities.push({
+          type: 'project_reviewing',
+          project_id: p.id,
+          project_name: p.name,
+          timestamp: p.updated_at,
+          actor: supplierName,
+          meta: { revision: p.current_revision }
+        })
+      }
+
+      // 5. Completed projects
+      const { data: completedProjects } = await db
+        .from('projects')
+        .select(`
+          id, name, updated_at,
+          project_suppliers(
+            status,
+            supplier:profiles(username, company_name)
+          )
+        `)
+        .in('created_by', creatorIds)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: false })
+        .limit(limit)
+
+      for (const p of (completedProjects || [])) {
+        const acceptedSupplier = Array.isArray(p.project_suppliers)
+          ? p.project_suppliers.find(ps => ps.status === 'accepted')
+          : null
+        const supplierName = acceptedSupplier?.supplier?.company_name || acceptedSupplier?.supplier?.username || null
+        activities.push({
+          type: 'project_completed',
+          project_id: p.id,
+          project_name: p.name,
+          timestamp: p.updated_at,
+          actor: supplierName,
+          meta: {}
+        })
+      }
+
+      // 6. Revision requests on customer's projects
+      const { data: revReqs } = await db
+        .from('revision_requests')
+        .select(`
+          id,
+          project_id,
+          revision_type,
+          status,
+          created_at,
+          requester:profiles!revision_requests_requested_by_fkey(username, company_name),
+          project:projects!inner(id, name, created_by)
+        `)
+        .in('project.created_by', creatorIds)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+
+      for (const r of (revReqs || [])) {
+        if (!r.project) continue
+        activities.push({
+          type: 'revision_requested',
+          project_id: r.project.id,
+          project_name: r.project.name,
+          timestamp: r.created_at,
+          actor: r.requester?.company_name || r.requester?.username || 'Tedarikçi',
+          meta: { revision_type: r.revision_type, status: r.status }
+        })
+      }
+
+    } else if (req.user.role === 'user') {
+      // 1. New job assignments
+      const { data: newAssignments } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          assigned_at,
+          status,
+          project:projects(id, name, deadline, creator:profiles!projects_created_by_fkey(username, company_name))
+        `)
+        .eq('supplier_id', req.user.id)
+        .not('assigned_at', 'is', null)
+        .order('assigned_at', { ascending: false })
+        .limit(limit)
+
+      for (const a of (newAssignments || [])) {
+        if (!a.project) continue
+        if (a.status === 'pending') {
+          activities.push({
+            type: 'job_assigned',
+            project_id: a.project.id,
+            project_name: a.project.name,
+            timestamp: a.assigned_at,
+            actor: a.project.creator?.company_name || a.project.creator?.username || 'Müşteri',
+            meta: { deadline: a.project.deadline }
+          })
+        }
+      }
+
+      // 2. Accepted quotes
+      const { data: acceptedMine } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          quoted_price,
+          quoted_at,
+          project:projects(id, name, creator:profiles!projects_created_by_fkey(username, company_name))
+        `)
+        .eq('supplier_id', req.user.id)
+        .eq('status', 'accepted')
+        .not('quoted_at', 'is', null)
+        .order('quoted_at', { ascending: false })
+        .limit(limit)
+
+      for (const q of (acceptedMine || [])) {
+        if (!q.project) continue
+        activities.push({
+          type: 'my_quote_accepted',
+          project_id: q.project.id,
+          project_name: q.project.name,
+          timestamp: q.quoted_at,
+          actor: q.project.creator?.company_name || q.project.creator?.username || 'Müşteri',
+          meta: { price: q.quoted_price }
+        })
+      }
+
+      // 3. Rejected quotes
+      const { data: rejectedMine } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          quoted_at,
+          project:projects(id, name, creator:profiles!projects_created_by_fkey(username, company_name))
+        `)
+        .eq('supplier_id', req.user.id)
+        .eq('status', 'rejected')
+        .not('quoted_at', 'is', null)
+        .order('quoted_at', { ascending: false })
+        .limit(limit)
+
+      for (const q of (rejectedMine || [])) {
+        if (!q.project) continue
+        activities.push({
+          type: 'my_quote_rejected',
+          project_id: q.project.id,
+          project_name: q.project.name,
+          timestamp: q.quoted_at,
+          actor: q.project.creator?.company_name || q.project.creator?.username || 'Müşteri',
+          meta: {}
+        })
+      }
+
+      // 4. Completed jobs
+      const { data: completedJobs } = await db
+        .from('project_suppliers')
+        .select(`
+          project_id,
+          project:projects!inner(id, name, updated_at, status, creator:profiles!projects_created_by_fkey(username, company_name))
+        `)
+        .eq('supplier_id', req.user.id)
+        .eq('status', 'accepted')
+        .eq('project.status', 'completed')
+        .order('project.updated_at', { ascending: false })
+        .limit(limit)
+
+      for (const j of (completedJobs || [])) {
+        if (!j.project) continue
+        activities.push({
+          type: 'job_completed',
+          project_id: j.project.id,
+          project_name: j.project.name,
+          timestamp: j.project.updated_at,
+          actor: j.project.creator?.company_name || j.project.creator?.username || 'Müşteri',
+          meta: {}
+        })
+      }
+
+      // 5. Revision requests on my accepted projects
+      const { data: myProjectIds } = await db
+        .from('project_suppliers')
+        .select('project_id')
+        .eq('supplier_id', req.user.id)
+        .eq('status', 'accepted')
+
+      const myPids = new Set((myProjectIds || []).map(r => r.project_id))
+
+      if (myPids.size > 0) {
+        const { data: myRevReqs } = await db
+          .from('revision_requests')
+          .select(`
+            id,
+            project_id,
+            revision_type,
+            status,
+            created_at,
+            requester:profiles!revision_requests_requested_by_fkey(username, company_name),
+            project:projects!inner(id, name)
+          `)
+          .in('project_id', [...myPids])
+          .order('created_at', { ascending: false })
+          .limit(limit)
+
+        for (const r of (myRevReqs || [])) {
+          if (!r.project) continue
+          activities.push({
+            type: 'revision_on_my_job',
+            project_id: r.project.id,
+            project_name: r.project.name,
+            timestamp: r.created_at,
+            actor: r.requester?.company_name || r.requester?.username || null,
+            meta: { revision_type: r.revision_type, status: r.status }
+          })
+        }
+      }
+    }
+
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    res.json(activities.slice(0, limit))
+  } catch (error) {
+    console.error('Recent activities error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// =============================================
+// PARÇA TAMAMLAMA
+// =============================================
+
+// POST /api/projects/:projectId/files/:fileId/complete — tedarikçi dosyayı tamamlandı işaretler
+router.post('/:projectId/files/:fileId/complete', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'user') {
+      return res.status(403).json({ error: 'Sadece tedarikçiler parça tamamlayabilir.' })
+    }
+
+    const { projectId, fileId } = req.params
+    const { createClient } = await import('@supabase/supabase-js')
+    const db = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    // Supplier must be accepted on this project
+    const { data: ps } = await db
+      .from('project_suppliers')
+      .select('status')
+      .eq('project_id', projectId)
+      .eq('supplier_id', req.user.id)
+      .single()
+
+    if (!ps || ps.status !== 'accepted') {
+      return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
+    }
+
+    // File must belong to this project and be active
+    const { data: file } = await db
+      .from('project_files')
+      .select('id, file_name, is_active, status')
+      .eq('id', fileId)
+      .eq('project_id', projectId)
+      .single()
+
+    if (!file) return res.status(404).json({ error: 'Dosya bulunamadı.' })
+    if (!file.is_active || file.status === 'pending') {
+      return res.status(400).json({ error: 'Pasif veya önizleme dosyası tamamlanamaz.' })
+    }
+
+    // Mark file as completed
+    const { error: updateErr } = await db
+      .from('project_files')
+      .update({
+        is_completed: true,
+        completed_at: new Date().toISOString(),
+        completed_by: req.user.id
+      })
+      .eq('id', fileId)
+
+    if (updateErr) throw updateErr
+
+    res.json({ success: true, message: `${file.file_name} tamamlandı.` })
+  } catch (error) {
+    console.error('Complete file error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
+// POST /api/projects/:projectId/files/:fileId/uncomplete — tamamlamayı geri al
+router.post('/:projectId/files/:fileId/uncomplete', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'user') {
+      return res.status(403).json({ error: 'Sadece tedarikçiler bu işlemi yapabilir.' })
+    }
+
+    const { projectId, fileId } = req.params
+    const { createClient } = await import('@supabase/supabase-js')
+    const db = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const { data: ps } = await db
+      .from('project_suppliers')
+      .select('status')
+      .eq('project_id', projectId)
+      .eq('supplier_id', req.user.id)
+      .single()
+
+    if (!ps || ps.status !== 'accepted') {
+      return res.status(403).json({ error: 'Bu projeye erişim yetkiniz yok.' })
+    }
+
+    const { error: updateErr } = await db
+      .from('project_files')
+      .update({ is_completed: false, completed_at: null, completed_by: null })
+      .eq('id', fileId)
+      .eq('project_id', projectId)
+
+    if (updateErr) throw updateErr
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Uncomplete file error:', error)
+    res.status(500).json({ error: 'Sunucu hatası.' })
+  }
+})
+
 // Get single project with checklist
 router.get('/:id', authenticateToken, async (req, res) => {
   try {

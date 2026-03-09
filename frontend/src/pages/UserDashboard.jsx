@@ -7,9 +7,10 @@ import API_URL from '../lib/api'
 import { 
   LogOut, Box, Clock, CheckCircle, 
   Eye, FileBox, Calendar, ChevronRight, Building2, Send, Users, Key, Plus,
-  Settings, Sun, Moon
+  Settings, Sun, Moon, User, LayoutGrid, List
 } from 'lucide-react'
 import { formatDeadlineInfo } from '../utils/dateUtils'
+import RecentActivities from '../components/RecentActivities'
 import './Dashboard.css'
 
 export default function UserDashboard() {
@@ -23,6 +24,7 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(true)
   const [loadingCustomers, setLoadingCustomers] = useState(false)
   const [filter, setFilter] = useState('pending')
+  const [viewMode, setViewMode] = useState('grid')
   const [pendingQuotationsCount, setPendingQuotationsCount] = useState(0)
   const [inviteCode, setInviteCode] = useState('')
   const [joiningCustomer, setJoiningCustomer] = useState(false)
@@ -199,6 +201,16 @@ export default function UserDashboard() {
             </div>
             {settingsOpen && (
               <div className="settings-dropdown">
+                <Link
+                  to="/profile"
+                  className="settings-dropdown-item"
+                  onClick={() => setSettingsOpen(false)}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <User size={16} />
+                  Profilim
+                </Link>
+                <div className="settings-dropdown-divider" />
                 <button className="settings-dropdown-item" onClick={() => { toggleTheme() }}>
                   {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
                   {theme === 'light' ? 'Karanlık Mod' : 'Aydınlık Mod'}
@@ -454,21 +466,43 @@ export default function UserDashboard() {
           )}
         </div>
 
-        <div className="filter-tabs">
-          <button 
-            className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
-            onClick={() => setFilter('pending')}
-          >
-            <Clock size={16} />
-            Bekleyenler ({pendingProjects.length})
-          </button>
-          <button 
-            className={`filter-tab ${filter === 'completed' ? 'active' : ''}`}
-            onClick={() => setFilter('completed')}
-          >
-            <CheckCircle size={16} />
-            Tamamlananlar ({completedProjects.length})
-          </button>
+        <RecentActivities />
+
+        <div className="filter-tabs-row">
+          <div className="filter-tabs">
+            <button 
+              className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
+              onClick={() => setFilter('pending')}
+            >
+              <Clock size={16} />
+              Bekleyenler ({pendingProjects.length})
+            </button>
+            <button 
+              className={`filter-tab ${filter === 'completed' ? 'active' : ''}`}
+              onClick={() => setFilter('completed')}
+            >
+              <CheckCircle size={16} />
+              Tamamlananlar ({completedProjects.length})
+            </button>
+          </div>
+          <div className="view-toggle">
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              aria-label="Izgara görünümü"
+            >
+              <LayoutGrid size={20} />
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => setViewMode('list')}
+              aria-label="Liste görünümü"
+            >
+              <List size={20} />
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -488,9 +522,9 @@ export default function UserDashboard() {
             </p>
           </div>
         ) : (
-          <div className="projects-grid stagger-children">
+          <div className={`stagger-children ${viewMode === 'list' ? 'projects-list' : 'projects-grid'}`}>
             {filteredProjects.map(project => (
-              <Link to={`/project/${project.id}`} key={project.id} className="project-card">
+              <Link to={`/project/${project.id}`} key={project.id} className={`project-card ${viewMode === 'list' ? 'project-card-list' : ''}`}>
                 <div className="project-card-header">
                   <span className={`badge ${getStatusBadge(project.status).class}`}>
                     {getStatusBadge(project.status).label}

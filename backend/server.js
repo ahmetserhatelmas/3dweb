@@ -320,7 +320,7 @@ cron.schedule('0 3 */3 * *', async () => {
   }
 })
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`🚀 M-Chain Backend running on http://localhost:${PORT}`)
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`)
   if (!process.env.SUPABASE_URL) {
@@ -331,6 +331,24 @@ const server = app.listen(PORT, () => {
   }
   console.log('⏰ Supabase keepalive aktif - Her 3 günde bir çalışacak')
   console.log('🔒 Security: Helmet + Rate Limiting enabled')
+
+  // Auto-migration: parça tamamlama kolonları
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+    const { error } = await db.rpc('run_migration', { sql: '' }).throwOnError().catch(() => null)
+    // Try direct column check via REST
+    const { data, error: colErr } = await db.from('project_files').select('is_completed').limit(1)
+    if (colErr && colErr.message?.includes('is_completed')) {
+      // Column doesn't exist — log migration SQL for manual run
+      console.warn('⚠️  Migration needed: Run the following SQL in Supabase SQL Editor:')
+      console.warn('ALTER TABLE project_files ADD COLUMN IF NOT EXISTS is_completed BOOLEAN DEFAULT FALSE, ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS completed_by UUID REFERENCES profiles(id);')
+    } else {
+      console.log('✅ project_files.is_completed column ready')
+    }
+  } catch (e) {
+    // Non-fatal
+  }
 })
 
 // Graceful shutdown

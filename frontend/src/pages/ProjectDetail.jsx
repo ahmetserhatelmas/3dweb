@@ -23,6 +23,7 @@ const FILE_CATEGORIES = {
   image: { key: 'image', label: 'Resim', types: ['image'] },
   document: { key: 'document', label: 'Sözleşme / Döküman', types: ['document'] },
   other: { key: 'other', label: 'Diğer', types: ['other'] },
+  completed: { key: 'completed', label: 'Tamamlanan çalışma dosyaları', types: null },
   pasif: { key: 'pasif', label: 'Pasif dosyalar', types: null }
 }
 const getFileCategory = (fileType) => {
@@ -73,6 +74,9 @@ export default function ProjectDetail() {
   const [completing, setCompleting] = useState(false)
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [deletingDoc, setDeletingDoc] = useState(null)
+
+  // Custom confirm modal (site içi — confirm() yerine)
+  const [customConfirm, setCustomConfirm] = useState(null) // { message, onConfirm }
   
   // New: Active file view
   const [activeFile, setActiveFile] = useState(null) // Currently selected file
@@ -335,30 +339,33 @@ export default function ProjectDetail() {
 
   // Delete entire project
   const handleDeleteProject = async () => {
-    if (!confirm(`"${project.name}" projesini tamamen silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
-      return
-    }
-
-    setDeletingProject(true)
-    try {
-      const res = await fetch(`${API_URL}/api/projects/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (res.ok) {
-        alert('Proje başarıyla silindi.')
-        navigate(user.role === 'admin' ? '/admin' : '/customer')
-      } else {
-        const data = await res.json()
-        alert(data.error || 'Proje silinemedi.')
+    setCustomConfirm({
+      message: `"${project.name}" projesini tamamen silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`,
+      confirmLabel: 'Sil',
+      danger: true,
+      onConfirm: async () => {
+        setCustomConfirm(null)
+        setDeletingProject(true)
+        try {
+          const res = await fetch(`${API_URL}/api/projects/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            showToast('Proje başarıyla silindi.')
+            setTimeout(() => navigate(user.role === 'admin' ? '/admin' : '/customer'), 1200)
+          } else {
+            const data = await res.json()
+            showToast(data.error || 'Proje silinemedi.', false)
+          }
+        } catch (error) {
+          console.error('Delete project error:', error)
+          showToast('Bir hata oluştu.', false)
+        } finally {
+          setDeletingProject(false)
+        }
       }
-    } catch (error) {
-      console.error('Delete project error:', error)
-      alert('Bir hata oluştu.')
-    } finally {
-      setDeletingProject(false)
-    }
+    })
   }
 
   const handleChecklistChange = async (itemId, checked, isChild = false, parentId = null) => {
@@ -541,28 +548,29 @@ export default function ProjectDetail() {
   }
 
   const handleComplete = async () => {
-    if (!confirm('Tüm kontroller tamamlandı mı? İşi bitirmek istediğinizden emin misiniz?')) {
-      return
-    }
-
-    setCompleting(true)
-    try {
-      const res = await fetch(`${API_URL}/api/projects/${id}/complete`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (res.ok) {
-        setProject(prev => ({ ...prev, status: 'completed' }))
-      } else {
-        const data = await res.json()
-        alert(data.error)
+    setCustomConfirm({
+      message: 'Tüm kontroller tamamlandı mı? İşi bitirmek istediğinizden emin misiniz?',
+      onConfirm: async () => {
+        setCustomConfirm(null)
+        setCompleting(true)
+        try {
+          const res = await fetch(`${API_URL}/api/projects/${id}/complete`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            setProject(prev => ({ ...prev, status: 'completed' }))
+          } else {
+            const data = await res.json()
+            showToast(data.error || 'İşlem başarısız.', false)
+          }
+        } catch (error) {
+          console.error('Complete project error:', error)
+        } finally {
+          setCompleting(false)
+        }
       }
-    } catch (error) {
-      console.error('Complete project error:', error)
-    } finally {
-      setCompleting(false)
-    }
+    })
   }
 
   const handleDocumentUpload = async (e) => {
@@ -634,6 +642,78 @@ export default function ProjectDetail() {
   const hasPendingFiles = project?.project_files?.some(file => file.status === 'pending') || false
   const hasProblematicFiles = hasInactiveFiles || hasPendingFiles
 
+  // ---- Parça tamamlama ----
+  const [completingFile, setCompletingFile] = useState(false)
+
+  const handleCompleteFile = async (fileId, undo = false) => {
+    setCustomConfirm({
+      message: undo
+        ? 'Bu parçayı tamamlanmadı olarak işaretlemek istiyor musunuz?'
+        : 'Bu parçanın tüm kontrolleri tamamlandı mı? Parçayı tamamlamak istiyor musunuz?',
+      onConfirm: async () => {
+        setCustomConfirm(null)
+        setCompletingFile(true)
+        try {
+          const endpoint = undo ? 'uncomplete' : 'complete'
+          const res = await fetch(`${API_URL}/api/projects/${id}/files/${fileId}/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (res.ok) {
+            const updatedFile = { ...project?.project_files?.find(f => f.id === fileId), is_completed: !undo, completed_at: undo ? null : new Date().toISOString() }
+            setProject(prev => ({
+              ...prev,
+              project_files: prev.project_files.map(f =>
+                f.id === fileId
+                  ? { ...f, is_completed: !undo, completed_at: undo ? null : new Date().toISOString() }
+                  : f
+              )
+            }))
+            // activeFile de güncelle — yoksa buton eski state'i gösterir
+            setActiveFile(prev => prev?.id === fileId ? { ...prev, is_completed: !undo, completed_at: undo ? null : new Date().toISOString() } : prev)
+            if (!undo) {
+              setActiveFile(null)
+              setViewMode('files')
+              showToast('Parça tamamlandı!')
+            } else {
+              showToast('Tamamlama geri alındı.')
+            }
+          } else {
+            const data = await res.json()
+            showToast(data.error || 'İşlem başarısız.', false)
+          }
+        } catch (e) {
+          showToast('Bir hata oluştu.', false)
+        } finally {
+          setCompletingFile(false)
+        }
+      }
+    })
+  }
+
+  // Parça ilerleme hesabı: sadece aktif, work dosyaları (step, stl, dxf, iges, parasolid)
+  const workFiles = project?.project_files?.filter(f => f.is_active !== false && f.status !== 'pending' && ['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(f.file_type)) || []
+  const completedWorkFiles = workFiles.filter(f => f.is_completed)
+
+  // Her dosyanın kendi checklist tiklerine göre ilerleme oranı hesapla
+  // file_checklists varsa o dosyanın tik oranı, yoksa is_completed ile binary (0 veya 100)
+  const fileChecklistsMap = project?.file_checklists || {}
+  const fileProgressDetails = workFiles.map(f => {
+    const items = fileChecklistsMap[f.id]
+    if (items && items.length > 0) {
+      // Sadece parent item'lar (parent_id yok) sayılır — children parent'ı etkiler
+      const parentItems = items.filter(i => !i.parent_id)
+      if (parentItems.length === 0) return f.is_completed ? 100 : 0
+      const checkedParents = parentItems.filter(i => i.is_checked).length
+      return Math.round((checkedParents / parentItems.length) * 100)
+    }
+    // Checklist yoksa sadece tamamlama durumuna bak
+    return f.is_completed ? 100 : 0
+  })
+  const fileProgress = workFiles.length > 0
+    ? Math.round(fileProgressDetails.reduce((sum, p) => sum + p, 0) / workFiles.length)
+    : 0
+
   const getStatusBadge = (status) => {
     const statusMap = {
       pending: { label: 'Bekliyor', class: 'badge-pending', icon: Clock },
@@ -704,6 +784,9 @@ export default function ProjectDetail() {
     let filtered = null
     if (filterKey === 'pasif') {
       filtered = inactiveFiles.map(file => ({ file, pendingPreviews: [], isActive: false }))
+    } else if (filterKey === 'completed') {
+      // completed tab kendi render'ını yapıyor, filtered null kalabilir
+      filtered = null
     } else if (filterKey !== 'all') {
       let list
       if (catDef?.types) {
@@ -939,19 +1022,47 @@ export default function ProjectDetail() {
         
         <div className="header-actions">
           {user.role === 'user' && project.status !== 'completed' && project.can_edit_checklist && (
-            <button 
-              className="btn btn-primary"
-              onClick={handleComplete}
-              disabled={completing || hasProblematicFiles}
-              title={hasProblematicFiles ? 'Pasif veya önizleme dosyaları var - önce revizyonları tamamlayın' : ''}
-            >
-              {completing ? 'Tamamlanıyor...' : (
-                <>
-                  <CheckCircle size={18} />
-                  İşi Tamamla
-                </>
-              )}
-            </button>
+            viewMode === 'viewer' && activeFile && activeFile.is_active !== false && activeFile.status !== 'pending' &&
+            ['step', 'stl', 'dxf', 'iges', 'parasolid'].includes(activeFile.file_type) ? (
+              // Viewer modunda: Parçayı Tamamla
+              activeFile.is_completed ? (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleCompleteFile(activeFile.id, true)}
+                  disabled={completingFile}
+                >
+                  <CheckCircle size={18} style={{ color: '#10b981' }} />
+                  Tamamlandı
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleCompleteFile(activeFile.id)}
+                  disabled={completingFile}
+                >
+                  {completingFile ? 'Tamamlanıyor...' : (
+                    <>
+                      <CheckCircle size={18} />
+                      Parçayı Tamamla
+                    </>
+                  )}
+                </button>
+              )
+            ) : (
+              // Dosya listesi modunda: İşi Tamamla
+              <button 
+                className="btn btn-primary"
+                onClick={handleComplete}
+                disabled={completing}
+              >
+                {completing ? 'Tamamlanıyor...' : (
+                  <>
+                    <CheckCircle size={18} />
+                    İşi Tamamla
+                  </>
+                )}
+              </button>
+            )
           )}
 
           {(user.role === 'customer' || user.role === 'admin') && (
@@ -970,20 +1081,6 @@ export default function ProjectDetail() {
           )}
         </div>
       </header>
-
-      {/* Project Progress Bar */}
-      <div className="project-progress-section">
-        <div className="progress-info">
-          <span>Proje İlerlemesi</span>
-          <span className="progress-percentage">{totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0}%</span>
-        </div>
-        <div className="project-progress-bar">
-          <div 
-            className="project-progress-fill" 
-            style={{ width: `${totalCount > 0 ? (checkedCount / totalCount) * 100 : 0}%` }}
-          />
-        </div>
-      </div>
 
       <div className="detail-content">
         {/* Left Panel: Files or Viewer */}
@@ -1004,40 +1101,50 @@ export default function ProjectDetail() {
               </div>
               <div className="file-category-filter">
                 <Filter size={16} className="filter-icon" />
-                {['all', 'work', 'pdf', 'excel', 'image', 'document', 'other', 'pasif'].map((key) => {
+                {['all', 'work', 'pdf', 'excel', 'image', 'document', 'other', 'completed', 'pasif'].map((key) => {
                   const cat = FILE_CATEGORIES[key]
+                  // completed tab'ı her zaman göster
                   const count = key === 'all'
                     ? activeFilesWithPreviews.length
                     : key === 'pasif'
                       ? inactiveFiles.length
+                    : key === 'completed'
+                      ? completedWorkFiles.length
                       : (groupedByCategory[key] || []).length
                   return (
                     <button
                       key={key}
                       type="button"
-                      className={`file-filter-btn ${fileCategoryFilter === key ? 'active' : ''}`}
+                      className={`file-filter-btn ${fileCategoryFilter === key ? 'active' : ''} ${key === 'completed' ? 'file-filter-btn-completed' : ''}`}
                       onClick={() => setFileCategoryFilter(key)}
                     >
                       {cat.label}
-                      {count > 0 && <span className="file-filter-count">({count})</span>}
+                      {(count > 0 || key === 'completed') && <span className="file-filter-count">({count})</span>}
                     </button>
                   )
                 })}
               </div>
               <div className="files-list-by-category">
                 {fileCategoryFilter === 'all' ? (
-                  (['work', 'pdf', 'excel', 'image', 'document', 'other']).map((catKey) => {
+                  <>
+                  {(['work', 'pdf', 'excel', 'image', 'document', 'other']).map((catKey) => {
                     const list = groupedByCategory[catKey] || []
-                    if (list.length === 0) return null
+                    // For work files: split active (not completed) vs completed
+                    const isWork = catKey === 'work'
+                    const displayList = isWork
+                      ? list.filter(({ file }) => !file.is_completed)
+                      : list
+                    if (displayList.length === 0 && !(isWork && list.some(({ file }) => file.is_completed))) return null
                     const catLabel = FILE_CATEGORIES[catKey].label
                     return (
                       <div key={catKey} className="file-category-section">
                         <div className="panel-header category-section-header">
                           <h3>{catLabel}</h3>
-                          <span className="file-count">{list.length} dosya</span>
+                          <span className="file-count">{displayList.length} dosya</span>
                         </div>
+                        {displayList.length > 0 && (
                         <div className="files-grid">
-                          {list.map(({ file, pendingPreviews, isActive }) => (
+                          {displayList.map(({ file, pendingPreviews, isActive }) => (
                             <div key={`file-group-${file.id}`} className={pendingPreviews?.length > 0 ? 'file-group-with-preview' : ''}>
                               <div
                                 className={`project-file-card ${!isActive ? 'inactive' : ''}`}
@@ -1085,9 +1192,86 @@ export default function ProjectDetail() {
                             </div>
                           ))}
                         </div>
+                        )}
                       </div>
                     )
-                  })
+                  })}
+
+                  {/* Tamamlanan parçalar bölümü */}
+                  {completedWorkFiles.length > 0 && (
+                    <div className="file-category-section file-category-completed">
+                      <div className="panel-header category-section-header">
+                        <h3 style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <CheckCircle size={16} />
+                          Tamamlananlar
+                        </h3>
+                        <span className="file-count" style={{ color: '#10b981' }}>
+                          {completedWorkFiles.length} parça
+                        </span>
+                      </div>
+                      <div className="files-grid">
+                        {completedWorkFiles.map((file) => (
+                          <div key={`completed-${file.id}`}>
+                            <div
+                              className="project-file-card file-card-completed"
+                              onClick={() => handleFileClick(file)}
+                            >
+                              <div className="file-card-icon">{getFileIcon(file.file_type)}</div>
+                              <div className="file-card-info">
+                                <span className="file-card-name">{file.file_name}</span>
+                                {file.completed_at && (
+                                  <span className="file-card-desc" style={{ color: '#10b981' }}>
+                                    {new Date(file.completed_at).toLocaleDateString('tr-TR')} tamamlandı
+                                  </span>
+                                )}
+                                <div className="file-card-meta">
+                                  {file.quantity > 1 && <span className="file-card-qty">{file.quantity} adet</span>}
+                                  {file.revision && <span className="file-card-revision">Rev. {file.revision}</span>}
+                                </div>
+                              </div>
+                              <div className="file-card-badge">{file.file_type.toUpperCase()}</div>
+                              <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  </>
+                ) : fileCategoryFilter === 'completed' ? (
+                  // Tamamlanan çalışma dosyaları tab'ı
+                  completedWorkFiles.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                      Henüz tamamlanan çalışma dosyası yok.
+                    </div>
+                  ) : (
+                    <div className="files-grid" style={{ padding: '0.75rem' }}>
+                      {completedWorkFiles.map((file) => (
+                        <div key={`completed-tab-${file.id}`}>
+                          <div
+                            className="project-file-card file-card-completed"
+                            onClick={() => handleFileClick(file)}
+                          >
+                            <div className="file-card-icon">{getFileIcon(file.file_type)}</div>
+                            <div className="file-card-info">
+                              <span className="file-card-name">{file.file_name}</span>
+                              {file.completed_at && (
+                                <span className="file-card-desc" style={{ color: '#10b981' }}>
+                                  {new Date(file.completed_at).toLocaleDateString('tr-TR')} tamamlandı
+                                </span>
+                              )}
+                              <div className="file-card-meta">
+                                {file.quantity > 1 && <span className="file-card-qty">{file.quantity} adet</span>}
+                                {file.revision && <span className="file-card-revision">Rev. {file.revision}</span>}
+                              </div>
+                            </div>
+                            <div className="file-card-badge">{file.file_type.toUpperCase()}</div>
+                            <CheckCircle size={18} style={{ color: '#10b981', flexShrink: 0 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 ) : (
                   <>
                     {fileCategoryFilter === 'pasif' && inactiveFiles.length > 0 && (
@@ -1483,6 +1667,27 @@ export default function ProjectDetail() {
                   {project.file_checklists[activeFile.id].filter(i => !i.parent_id && i.is_checked).length} / {project.file_checklists[activeFile.id].filter(i => !i.parent_id).length}
                 </span>
               </div>
+              {/* Parça İlerlemesi — sadece tedarikçi için */}
+              {user.role === 'user' && (() => {
+                const fileIdx = workFiles.findIndex(f => f.id === activeFile.id)
+                const pct = fileIdx >= 0 ? fileProgressDetails[fileIdx] : 0
+                return (
+                  <div style={{ padding: '0.5rem 1rem 0.75rem', borderBottom: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>
+                      <span>Parça İlerlemesi</span>
+                      <span style={{ fontWeight: 600, color: pct === 100 ? '#10b981' : 'var(--text-secondary)' }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: '6px', borderRadius: '3px', background: 'var(--border-color)', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: '3px',
+                        width: `${pct}%`,
+                        background: pct === 100 ? '#10b981' : '#8b5cf6',
+                        transition: 'width 0.4s ease'
+                      }} />
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="file-checklist-items">
                 {project.file_checklists[activeFile.id].map((item) => (
                   <div key={item.id}>
@@ -2147,6 +2352,58 @@ export default function ProjectDetail() {
         }}>
           {toastMsg.ok ? <CheckCircle size={18} /> : <XCircle size={18} />}
           {toastMsg.text}
+        </div>
+      )}
+
+      {/* ── Custom Confirm Modal ── */}
+      {customConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10001,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: `1px solid ${customConfirm.danger ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`,
+            borderRadius: '16px',
+            padding: '2rem',
+            maxWidth: '420px',
+            width: '90%',
+            boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+            animation: 'slideUp 0.2s ease'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
+                background: customConfirm.danger ? 'rgba(239,68,68,0.12)' : 'rgba(139,92,246,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                {customConfirm.danger
+                  ? <Trash2 size={20} style={{ color: '#ef4444' }} />
+                  : <CheckCircle size={20} style={{ color: '#8b5cf6' }} />
+                }
+              </div>
+              <p style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.95rem', lineHeight: '1.5' }}>
+                {customConfirm.message}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setCustomConfirm(null)}
+              >
+                İptal
+              </button>
+              <button
+                className={`btn ${customConfirm.danger ? 'btn-danger' : 'btn-primary'}`}
+                onClick={customConfirm.onConfirm}
+              >
+                {customConfirm.danger ? <Trash2 size={16} /> : <CheckCircle size={16} />}
+                {customConfirm.confirmLabel || 'Tamam'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
