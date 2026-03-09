@@ -825,7 +825,26 @@
     font-size: 1.1rem;
   }
 
-  .header-nav a {
+  /* Header mobil */
+  .home-header {
+    padding: 0;
+  }
+
+  .header-content {
+    padding: 0 1rem;
+    height: 60px;
+  }
+
+  .home-logo {
+    height: 52px;
+  }
+
+  .logo-text {
+    font-size: 1.1rem;
+  }
+
+  /* Mobilde header nav tamamen gizle — butonlar hero'da zaten var */
+  .header-nav {
     display: none;
   }
 
