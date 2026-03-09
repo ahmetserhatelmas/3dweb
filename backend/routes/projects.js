@@ -1967,6 +1967,10 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
       return res.status(400).json({ error: 'En az bir tedarikçi seçilmelidir.' })
     }
 
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'En az bir dosya yüklenmelidir.' })
+    }
+
     // Create project (assigned_to will be the first supplier for backwards compatibility)
     const projectData = {
       name,

@@ -378,7 +378,7 @@ export default function NewProject() {
 
   const canProceedToStep2 = uploadedFiles.length > 0
   const canProceedToStep3 = uploadedFiles.length > 0
-  const canSubmit = projectInfo.name && projectInfo.selectedSuppliers.length > 0
+  const canSubmit = projectInfo.name && projectInfo.selectedSuppliers.length > 0 && uploadedFiles.length > 0
 
   // Steps data
   const steps = [
