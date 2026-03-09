@@ -106,23 +106,23 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 // Rate Limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
-  message: 'Çok fazla istek gönderdiniz, lütfen 15 dakika sonra tekrar deneyin.',
+  max: process.env.NODE_ENV === 'production' ? 300 : 1000,
+  message: { error: 'Çok fazla istek gönderdiniz, lütfen 15 dakika sonra tekrar deneyin.' },
   standardHeaders: true,
   legacyHeaders: false,
 })
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 5 : 100, // 5 in prod, 100 in dev
+  max: process.env.NODE_ENV === 'production' ? 5 : 100,
   skipSuccessfulRequests: true,
-  message: 'Çok fazla giriş denemesi, 15 dakika sonra tekrar deneyin.',
+  message: { error: 'Çok fazla giriş denemesi, 15 dakika sonra tekrar deneyin.' },
 })
 
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 20, // 20 uploads per hour
-  message: 'Çok fazla dosya yüklendi, 1 saat sonra tekrar deneyin.',
+  max: 20,
+  message: { error: 'Çok fazla dosya yüklendi, 1 saat sonra tekrar deneyin.' },
 })
 
 // Apply rate limiters
