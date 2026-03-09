@@ -2052,7 +2052,9 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
           const email = authUser?.user?.email
           const name = authUser?.user?.user_metadata?.full_name || authUser?.user?.email || 'Tedarikçi'
           if (email) {
-            await sendQuoteRequestToSupplier(email, name, project.name, quoteDueAt, customerName)
+            sendQuoteRequestToSupplier(email, name, project.name, quoteDueAt, customerName).catch(e =>
+              console.warn('Quote request email skip for supplier', ps.supplier_id, e?.message)
+            )
           }
         } catch (e) {
           console.warn('Quote request email skip for supplier', ps.supplier_id, e?.message)
@@ -2146,48 +2148,34 @@ router.post('/', authenticateToken, requireAdminOrCustomer, async (req, res) => 
         const cadFileTypes = ['step', 'dxf', 'iges', 'parasolid']
         const stepFiles = insertedFiles.filter(f => cadFileTypes.includes(f.file_type))
         
+        const parentTemplates = stepTemplates.filter(t => t.description === 'PARENT')
+        const childTemplates = stepTemplates.filter(t => t.description !== 'PARENT')
+
         for (const stepFile of stepFiles) {
-          // First, insert parent items (description = 'PARENT')
-          const parentTemplates = stepTemplates.filter(t => t.description === 'PARENT')
-          const parentItems = []
-          
-          for (const template of parentTemplates) {
-            const { data: insertedParent } = await supabaseAdmin
-              .from('checklist_items')
-              .insert({
+          // Bulk insert parent items at once
+          const { data: insertedParents } = await supabaseAdmin
+            .from('checklist_items')
+            .insert(parentTemplates.map(t => ({
+              project_id: project.id,
+              file_id: stepFile.id,
+              title: t.name,
+              order_index: t.order_index,
+              parent_id: null
+            })))
+            .select('id, order_index')
+
+          if (insertedParents && childTemplates.length > 0) {
+            const childItems = childTemplates.map(template => {
+              const parentGroup = Math.floor(template.order_index / 100) * 100
+              const parent = insertedParents.find(p => p.order_index === parentGroup)
+              return {
                 project_id: project.id,
                 file_id: stepFile.id,
                 title: template.name,
                 order_index: template.order_index,
-                parent_id: null
-              })
-              .select()
-              .single()
-            
-            if (insertedParent) {
-              parentItems.push({ templateOrderIndex: template.order_index, parentId: insertedParent.id })
-            }
-          }
-          
-          // Then, insert child items with parent_id
-          const childTemplates = stepTemplates.filter(t => t.description !== 'PARENT')
-          const childItems = []
-          
-          for (const template of childTemplates) {
-            // Find parent by order_index grouping (e.g., 101-103 belong to 100)
-            const parentGroup = Math.floor(template.order_index / 100) * 100
-            const parent = parentItems.find(p => p.templateOrderIndex === parentGroup)
-            
-            childItems.push({
-              project_id: project.id,
-              file_id: stepFile.id,
-              title: template.name,
-              order_index: template.order_index,
-              parent_id: parent ? parent.parentId : null
+                parent_id: parent ? parent.id : null
+              }
             })
-          }
-          
-          if (childItems.length > 0) {
             await supabaseAdmin.from('checklist_items').insert(childItems)
           }
         }
